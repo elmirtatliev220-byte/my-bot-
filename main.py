@@ -16,7 +16,7 @@ from typing import List, Tuple, Any, Dict, Optional, Union
 import static_ffmpeg
 from dotenv import load_dotenv
 
-# --- [ ТЕХНИЧЕСКИЙ ДОБАВОК ДЛЯ RENDER: ИСПРАВЛЕН ] ---
+# --- [ ТЕХНИЧЕСКИЙ ДОБАВОК ДЛЯ RENDER ] ---
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -150,17 +150,12 @@ async def is_subscribed(user_id: int) -> bool:
 
 # --- [ СИСТЕМА ЗАГРУЗКИ ] ---
 
-async def fetch_api_bypass(url: str, mode: str = "video") -> Tuple[Optional[str], Optional[str], Optional[str]]:
+async def fetch_api_bypass(url: str, mode: str = "video") -> Tuple[Optional[str], Optional[Optional[str]], Optional[str]]:
     api_url = "https://api.cobalt.tools/api/json"
-    headers = {
-        "Accept": "application/json", 
-        "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
-    }
+    headers = {"Accept": "application/json", "Content-Type": "application/json"}
     payload = {
         "url": url, 
         "vCodec": "h264",
-        "videoQuality": "720",
         "isAudioOnly": True if mode == "audio" else False,
         "isNoWatermark": True
     }
@@ -173,16 +168,14 @@ async def fetch_api_bypass(url: str, mode: str = "video") -> Tuple[Optional[str]
                         return data.get("url"), data.get("author", "Social Media"), data.get("filename", "Media")
                     elif "picker" in data and len(data["picker"]) > 0:
                         return data["picker"][0].get("url"), "Social Media", "Media"
-        except Exception as e:
-            logging.error(f"Cobalt Error: {e}")
+        except: pass
     return None, None, None
 
 async def download_media(url: str, mode: str, user_id: int) -> Tuple[List[str], Dict[str, Any]]:
     low_url = url.lower()
     
     download_dir = str(BASE_DIR / "downloads")
-    if os.path.exists(download_dir):
-        shutil.rmtree(download_dir)
+    if os.path.exists(download_dir): shutil.rmtree(download_dir)
     os.makedirs(download_dir, exist_ok=True)
     
     ydl_params = {
@@ -208,23 +201,18 @@ async def download_media(url: str, mode: str, user_id: int) -> Tuple[List[str], 
             with yt_dlp.YoutubeDL(ydl_params) as ydl:
                 return ydl.extract_info(url, download=True)
         info = await asyncio.to_thread(_ex)
-        if not info:
-            raise Exception("No info extracted")
-        if 'entries' in info:
-            info = info['entries'][0]
+        if not info: raise Exception("No info")
+        if 'entries' in info: info = info['entries'][0]
         
         ext = "mp3" if mode == "audio" else "mp4"
         for f in os.listdir(download_dir):
             if info.get('id', 'none') in f and f.endswith(ext):
                 return [os.path.join(download_dir, f)], info
         return [], {}
-        
     except Exception as e:
         logging.error(f"yt-dlp error: {e}")
         link, author, title = await fetch_api_bypass(url, mode)
-        if link:
-            return [link], {"uploader": author or "Unknown", "title": title or "Media"}
-        logging.error(f"Final DL error (cobalt also failed): {e}")
+        if link: return [link], {"uploader": author or "Unknown", "title": title or "Media"}
         return [], {}
 
 # --- [ ХЕНДЛЕРЫ ] ---
@@ -324,25 +312,19 @@ async def process_download(callback: CallbackQuery):
                     res = await bot.send_video(user_id, video=FSInputFile(target), caption=cap, reply_markup=InlineKeyboardMarkup(inline_keyboard=ad_kb))
                 else:
                     res = await bot.send_audio(user_id, audio=FSInputFile(target), caption=cap, reply_markup=InlineKeyboardMarkup(inline_keyboard=ad_kb))
-                if os.path.exists(target):
-                    os.remove(target)
+                if os.path.exists(target): os.remove(target)
 
             f_id = None
-            if mode == "video" and getattr(res, "video", None):
-                f_id = res.video.file_id
-            elif mode == "audio" and getattr(res, "audio", None):
-                f_id = res.audio.file_id
+            if mode == "video" and getattr(res, "video", None): f_id = res.video.file_id
+            elif mode == "audio" and getattr(res, "audio", None): f_id = res.audio.file_id
             
-            if f_id:
-                save_to_cache(url, f_id, mode)
-            
+            if f_id: save_to_cache(url, f_id, mode)
             log_service_stat(url)
             increment_downloads(user_id)
             await load_msg.delete()
             
     except Exception as e:
-        logging.error(f"Send error: {e}")
-        await load_msg.edit_text(f"❌ Произошла ошибка при отправке.")
+        await load_msg.edit_text(f"❌ Ошибка: {str(e)}")
 
 # --- [ АДМИН-ПАНЕЛЬ ] ---
 
@@ -426,7 +408,6 @@ async def main():
 
 if __name__ == "__main__":
     try:
-        async with asyncio.Runner() as runner:
-            runner.run(main())
+        asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         print("Выход...")
