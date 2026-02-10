@@ -16,7 +16,7 @@ from typing import List, Tuple, Any, Dict, Optional, Union
 import static_ffmpeg
 from dotenv import load_dotenv
 
-# --- [ ТЕХНИЧЕСКИЙ ДОБАВОК ДЛЯ RENDER: ИСПРАВЛЕН ] ---
+# --- [ ТЕХНИЧЕСКИЙ ДОБАВОК ДЛЯ RENDER ] ---
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -25,7 +25,6 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args): return
 
 def run_health_check():
-    # Render требует привязки к 0.0.0.0 и порту из переменной PORT
     port = int(os.environ.get("PORT", 10000))
     server_address = ('0.0.0.0', port)
     try:
@@ -35,7 +34,6 @@ def run_health_check():
     except Exception as e:
         print(f"❌ Server error: {e}")
 
-# Запуск сервера в отдельном потоке
 threading.Thread(target=run_health_check, daemon=True).start()
 
 try:
@@ -88,7 +86,6 @@ class AdminStates(StatesGroup):
 
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
-ACTIVE_USERS: Dict[int, Message] = {}
 BOT_USERNAME: str = "Limiktikbot"
 
 # --- [ БАЗА ДАННЫХ ] ---
@@ -150,42 +147,49 @@ async def is_subscribed(user_id: int) -> bool:
         return member.status in ["member", "administrator", "creator"]
     except: return False
 
-# --- [ СИСТЕМА ЗАГРУЗКИ ] ---
+# --- [ СИСТЕМА ЗАГРУЗКИ (ДОБАВЛЕНО) ] ---
 
-async def fetch_api_bypass(url: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+async def fetch_api_bypass(url: str, mode: str = "video") -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    """Улучшенный метод обхода блокировок через API Cobalt"""
     api_url = "https://api.cobalt.tools/api/json"
     headers = {
         "Accept": "application/json", 
         "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
     payload = {
         "url": url, 
         "vCodec": "h264",
-        "videoQuality": "720"
+        "videoQuality": "720",
+        "isAudioOnly": True if mode == "audio" else False,
+        "isNoWatermark": True
     }
     async with aiohttp.ClientSession() as session:
         try:
-            async with session.post(api_url, json=payload, headers=headers, timeout=20) as resp:
+            async with session.post(api_url, json=payload, headers=headers, timeout=25) as resp:
                 if resp.status == 200:
                     data = await resp.json()
                     # Если API вернул прямую ссылку
                     if "url" in data:
-                        return data.get("url"), "Social Media", data.get("filename", "Video")
+                        return data.get("url"), "Social Media", data.get("filename", "Media")
+                    # Если API вернул выбор из нескольких ссылок
+                    elif "picker" in data and len(data["picker"]) > 0:
+                        return data["picker"][0].get("url"), "Social Media", "Media"
         except Exception as e:
-            logging.error(f"Cobalt Error: {e}")
+            logging.error(f"API Error: {e}")
     return None, None, None
 
 async def download_media(url: str, mode: str, user_id: int) -> Tuple[List[str], Dict[str, Any]]:
     low_url = url.lower()
     
-    # ПРИНУДИТЕЛЬНО ДЛЯ YOUTUBE/PINTEREST/INSTAGRAM (Блокируют серверные IP)
+    # ПРИНУДИТЕЛЬНО ДЛЯ YOUTUBE/PINTEREST/INSTAGRAM
     if any(x in low_url for x in ["youtube.com", "youtu.be", "instagram.com", "pinterest.com", "pin.it"]):
-        link, author, title = await fetch_api_bypass(url)
+        link, author, title = await fetch_api_bypass(url, mode)
         if link: return [link], {"uploader": author, "title": title}
 
-    # ДЛЯ ОСТАЛЬНЫХ (TikTok/VK)
+    # ДЛЯ ОСТАЛЬНЫХ (TikTok/VK) И ЗАПАСНОЙ ВАРИАНТ
     download_dir = str(BASE_DIR / "downloads")
+    if os.path.exists(download_dir): shutil.rmtree(download_dir) # Чистим перед загрузкой
     os.makedirs(download_dir, exist_ok=True)
     
     ydl_params = {
@@ -196,15 +200,10 @@ async def download_media(url: str, mode: str, user_id: int) -> Tuple[List[str], 
         'outtmpl': f"{download_dir}/%(id)s.%(ext)s",
         'ffmpeg_location': FFMPEG_EXE,
         'format': "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" if mode == "video" else "bestaudio/best",
-        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
     }
     
     if mode == "audio":
-        ydl_params['postprocessors'] = [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': '192',
-        }]
+        ydl_params['postprocessors'] = [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3','preferredquality': '192'}]
 
     try:
         def _ex():
@@ -218,12 +217,14 @@ async def download_media(url: str, mode: str, user_id: int) -> Tuple[List[str], 
         for f in os.listdir(download_dir):
             if info.get('id', 'none') in f and f.endswith(ext):
                 return [os.path.join(download_dir, f)], info
-        return [], {}
-    except Exception as e:
-        # Если yt-dlp подвёл, пробуем API еще раз
-        link, author, title = await fetch_api_bypass(url)
+        
+        # Если файл не найден, пробуем API
+        link, author, title = await fetch_api_bypass(url, mode)
         if link: return [link], {"uploader": author, "title": title}
-        logging.error(f"Final DL error: {e}")
+        return [], {}
+    except Exception:
+        link, author, title = await fetch_api_bypass(url, mode)
+        if link: return [link], {"uploader": author, "title": title}
         return [], {}
 
 # --- [ ХЕНДЛЕРЫ ] ---
@@ -237,13 +238,9 @@ async def start_cmd(message: Message):
     
     text = (
         f"👋 <b>Привет, {message.from_user.first_name}!</b>\n\n"
-        f"Я помогу тебе скачать видео без\nводяных знаков:\n"
-        f"————————————————\n"
-        f"✨ <b>TikTok</b> | 📸 <b>Instagram</b>\n"
-        f"📌 <b>Pinterest</b> | 📺 <b>YouTube</b>\n"
-        f"🔵 <b>VK Видео/Клипы</b>\n"
-        f"————————————————\n"
-        f"📍 <i>Просто пришли мне ссылку!</i>"
+        f"Я скачаю для тебя видео без водяных знаков.\n"
+        f"Поддерживаю: TikTok, Reels, YouTube, Pinterest и VK.\n\n"
+        f"📍 <b>Просто отправь мне ссылку!</b>"
     )
     
     kb = [[InlineKeyboardButton(text="🆘 Поддержка", callback_data="get_support")]]
@@ -262,7 +259,7 @@ async def handle_url(message: Message):
         if count >= FREE_LIMIT and not await is_subscribed(user_id):
             kb = [[InlineKeyboardButton(text="✅ Подписаться", url=CHANNEL_URL)],
                   [InlineKeyboardButton(text="🔄 Проверить подписку", callback_data="check_sub")]]
-            return await message.answer("⚠️ Лимит исчерпан! Подпишитесь на канал, чтобы продолжить:", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
+            return await message.answer("⚠️ Чтобы качать без ограничений, подпишитесь на канал:", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
 
     v_id = hashlib.md5(message.text.encode()).hexdigest()[:10]
     with get_db() as conn:
@@ -270,11 +267,10 @@ async def handle_url(message: Message):
     
     kb = [[InlineKeyboardButton(text="🎬 Видео", callback_data=f"v_{v_id}"),
            InlineKeyboardButton(text="🎵 Аудио", callback_data=f"a_{v_id}")]]
-    await message.answer("🎥 В каком формате скачать?", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
+    await message.answer("🎞 В каком формате отправить?", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
 
 @dp.callback_query(F.data.regexp(r"^[va]_"))
 async def process_download(callback: CallbackQuery):
-    if not callback.from_user or not callback.message or not callback.data: return
     user_id = callback.from_user.id
     prefix, v_id = callback.data.split("_")
     mode = "video" if prefix == "v" else "audio"
@@ -292,79 +288,62 @@ async def process_download(callback: CallbackQuery):
 
     if cached:
         try:
-            if mode == "video":
-                await bot.send_video(user_id, cached[0], reply_markup=InlineKeyboardMarkup(inline_keyboard=ad_kb))
-            else:
-                await bot.send_audio(user_id, cached[0], reply_markup=InlineKeyboardMarkup(inline_keyboard=ad_kb))
+            if mode == "video": await bot.send_video(user_id, cached[0], reply_markup=InlineKeyboardMarkup(inline_keyboard=ad_kb))
+            else: await bot.send_audio(user_id, cached[0], reply_markup=InlineKeyboardMarkup(inline_keyboard=ad_kb))
             increment_downloads(user_id)
-            await callback.message.delete()
-            return
+            return await callback.message.delete()
         except: pass
 
-    load_msg = await callback.message.edit_text("⏳ Начинаю загрузку, подождите...")
+    load_msg = await callback.message.edit_text("⏳ Обрабатываю... Это может занять до 30 секунд.")
     
     try:
         async with ChatActionSender(bot=bot, chat_id=user_id, action="upload_video" if mode=="video" else "upload_voice"):
             paths, info = await download_media(url, mode, user_id)
             if not paths:
-                await load_msg.edit_text("❌ Ошибка загрузки. Ссылка не поддерживается или контент защищен.")
-                return
+                return await load_msg.edit_text("❌ Не удалось получить видео. Возможно, ссылка приватная или сервис временно недоступен.")
 
-            cap = f"📝 {info.get('title', 'Без названия')}\n👤 {info.get('uploader', 'Автор неизвестен')}\n\n📥 @{BOT_USERNAME}"
+            cap = f"📝 {info.get('title', 'Media')}\n👤 {info.get('uploader', 'Uploader')}\n\n📥 @{BOT_USERNAME}"
             target = paths[0]
             
             if target.startswith("http"):
-                if mode == "video":
-                    res = await bot.send_video(user_id, video=target, caption=cap, reply_markup=InlineKeyboardMarkup(inline_keyboard=ad_kb))
-                else:
-                    res = await bot.send_audio(user_id, audio=target, caption=cap, reply_markup=InlineKeyboardMarkup(inline_keyboard=ad_kb))
+                if mode == "video": res = await bot.send_video(user_id, video=target, caption=cap, reply_markup=InlineKeyboardMarkup(inline_keyboard=ad_kb))
+                else: res = await bot.send_audio(user_id, audio=target, caption=cap, reply_markup=InlineKeyboardMarkup(inline_keyboard=ad_kb))
             else:
-                if mode == "video":
-                    res = await bot.send_video(user_id, video=FSInputFile(target), caption=cap, reply_markup=InlineKeyboardMarkup(inline_keyboard=ad_kb))
-                else:
-                    res = await bot.send_audio(user_id, audio=FSInputFile(target), caption=cap, reply_markup=InlineKeyboardMarkup(inline_keyboard=ad_kb))
+                if mode == "video": res = await bot.send_video(user_id, video=FSInputFile(target), caption=cap, reply_markup=InlineKeyboardMarkup(inline_keyboard=ad_kb))
+                else: res = await bot.send_audio(user_id, audio=FSInputFile(target), caption=cap, reply_markup=InlineKeyboardMarkup(inline_keyboard=ad_kb))
                 if os.path.exists(target): os.remove(target)
 
-            f_id = None
-            if mode == "video" and res.video: f_id = res.video.file_id
-            elif mode == "audio" and res.audio: f_id = res.audio.file_id
-            
+            f_id = res.video.file_id if mode == "video" else res.audio.file_id
             if f_id: save_to_cache(url, f_id, mode)
             
             log_service_stat(url)
             increment_downloads(user_id)
             await load_msg.delete()
             
-    except Exception as e:
-        await load_msg.edit_text(f"❌ Произошла ошибка при отправке.")
+    except Exception:
+        await load_msg.edit_text(f"❌ Произошла ошибка при отправке файла.")
 
 # --- [ АДМИН-ПАНЕЛЬ ] ---
 
 @dp.callback_query(F.data == "admin_main")
 async def admin_panel(callback: CallbackQuery):
-    if not callback.from_user or callback.from_user.id != ADMIN_ID: return
-    with get_db() as conn:
-        u_count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
-    
-    text = f"🛠 <b>Админ-панель</b>\n\nВсего пользователей: <b>{u_count}</b>\n\nСтатистика по сервисам:\n{get_service_stats()}"
-    kb = [
-        [InlineKeyboardButton(text="📢 Рассылка", callback_data="admin_broadcast")],
-        [InlineKeyboardButton(text="📝 Настроить рекламу", callback_data="edit_ad")],
-        [InlineKeyboardButton(text="❌ Закрыть", callback_data="close_admin")]
-    ]
+    if callback.from_user.id != ADMIN_ID: return
+    with get_db() as conn: u_count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+    text = f"🛠 <b>Админ-панель</b>\n\nПользователей: <b>{u_count}</b>\n\n{get_service_stats()}"
+    kb = [[InlineKeyboardButton(text="📢 Рассылка", callback_data="admin_broadcast")],
+          [InlineKeyboardButton(text="📝 Реклама", callback_data="edit_ad")],
+          [InlineKeyboardButton(text="❌ Закрыть", callback_data="close_admin")]]
     await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
 
 @dp.callback_query(F.data == "admin_broadcast")
 async def broadcast_start(callback: CallbackQuery, state: FSMContext):
     await state.set_state(AdminStates.waiting_for_broadcast_msg)
-    await callback.message.answer("📩 Пришлите сообщение (текст, фото, видео), которое нужно разослать всем:")
+    await callback.message.answer("📩 Отправьте сообщение для рассылки:")
     await callback.answer()
 
 @dp.message(AdminStates.waiting_for_broadcast_msg)
 async def broadcast_execute(message: Message, state: FSMContext):
-    with get_db() as conn:
-        users = conn.execute("SELECT user_id FROM users").fetchall()
-    
+    with get_db() as conn: users = conn.execute("SELECT user_id FROM users").fetchall()
     count = 0
     for user in users:
         try:
@@ -372,54 +351,28 @@ async def broadcast_execute(message: Message, state: FSMContext):
             count += 1
             await asyncio.sleep(0.05)
         except: continue
-    
-    await message.answer(f"✅ Рассылка завершена!\nУспешно отправлено: <b>{count}</b> пользователям.")
+    await message.answer(f"✅ Рассылка завершена! Отправлено: {count}")
     await state.clear()
-
-@dp.callback_query(F.data == "edit_ad")
-async def ad_start(c: CallbackQuery, state: FSMContext):
-    await state.set_state(AdminStates.waiting_for_ad_text)
-    await c.message.answer("Введите текст кнопки и ссылку через пробел:")
-    await c.answer()
-
-@dp.message(AdminStates.waiting_for_ad_text)
-async def ad_save(m: Message, state: FSMContext):
-    if not m.text: return
-    try:
-        txt, link = m.text.rsplit(" ", 1)
-        with get_db() as conn:
-            conn.execute("UPDATE settings SET value = ? WHERE key = 'ad_text'", (txt,))
-            conn.execute("UPDATE settings SET value = ? WHERE key = 'ad_url'", (link,))
-        await m.answer("✅ Реклама обновлена!")
-        await state.clear()
-    except:
-        await m.answer("❌ Ошибка. Формат: Текст Ссылка")
 
 @dp.callback_query(F.data == "check_sub")
 async def ch_sb(c: CallbackQuery):
-    if await is_subscribed(c.from_user.id):
-        await c.message.edit_text("✅ Подписка подтверждена!")
-    else:
-        await c.answer("❌ Сначала подпишись!", show_alert=True)
+    if await is_subscribed(c.from_user.id): await c.message.edit_text("✅ Подписка подтверждена!")
+    else: await c.answer("❌ Вы не подписаны!", show_alert=True)
 
 @dp.callback_query(F.data == "get_support")
 async def support_handler(callback: CallbackQuery):
-    await callback.message.answer(f"🛠 По всем вопросам пишите: @{SUPPORT_USER}")
+    await callback.message.answer(f"🛠 Поддержка: @{SUPPORT_USER}")
     await callback.answer()
 
 @dp.callback_query(F.data == "close_admin")
 async def close_admin_handler(callback: CallbackQuery):
-    if callback.message:
-        await callback.message.delete()
+    if callback.message: await callback.message.delete()
 
 async def main():
     init_db()
-    print(f"🚀 Бот запущен! FFmpeg: {FFMPEG_EXE}")
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        print("Выход...")
+    try: asyncio.run(main())
+    except KeyboardInterrupt: pass
