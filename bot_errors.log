@@ -1,0 +1,236 @@
+INFO:aiogram.dispatcher:Start polling
+INFO:aiogram.dispatcher:Run polling for bot @Limiktikbot id=8331687918 - 'Limiik'
+INFO:aiogram.event:Update id=828037602 is handled. Duration 310 ms by bot id=8331687918
+INFO:aiogram.event:Update id=828037603 is handled. Duration 454 ms by bot id=8331687918
+INFO:aiogram.event:Update id=828037604 is handled. Duration 21286 ms by bot id=8331687918
+INFO:aiogram.event:Update id=828037605 is handled. Duration 1283 ms by bot id=8331687918
+ERROR:root:YT-DLP Error: [0;31mERROR:[0m Unsupported URL: https://vk.ru/badbrowser.php
+INFO:aiogram.event:Update id=828037606 is handled. Duration 3959 ms by bot id=8331687918
+INFO:aiogram.event:Update id=828037607 is handled. Duration 414 ms by bot id=8331687918
+ERROR:root:YT-DLP Error: [0;31mERROR:[0m Unsupported URL: https://vk.ru/badbrowser.php
+INFO:aiogram.event:Update id=828037608 is handled. Duration 1720 ms by bot id=8331687918
+2026-02-09 21:42:08,337 - Start polling
+2026-02-09 21:42:08,428 - Run polling for bot @Limiktikbot id=8331687918 - 'Limiik'
+2026-02-09 21:42:19,072 - Update id=828037614 is not handled. Duration 1 ms by bot id=8331687918
+2026-02-09 21:42:19,072 - Cause exception while process update id=828037614 by bot id=8331687918
+NameError: name 'get_user_downloads' is not defined
+Traceback (most recent call last):
+  File "C:\Users\Ratmir\AppData\Roaming\Python\Python314\site-packages\aiogram\dispatcher\dispatcher.py", line 320, in _process_update
+    response = await self.feed_update(bot, update, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Ratmir\AppData\Roaming\Python\Python314\site-packages\aiogram\dispatcher\dispatcher.py", line 164, in feed_update
+    response = await self.update.wrap_outer_middleware(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<7 lines>...
+    )
+    ^
+  File "C:\Users\Ratmir\AppData\Roaming\Python\Python314\site-packages\aiogram\dispatcher\middlewares\error.py", line 27, in __call__
+    return await handler(event, data)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Ratmir\AppData\Roaming\Python\Python314\site-packages\aiogram\dispatcher\middlewares\user_context.py", line 58, in __call__
+    return await handler(event, data)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Ratmir\AppData\Roaming\Python\Python314\site-packages\aiogram\fsm\middleware.py", line 43, in __call__
+    return await handler(event, data)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Ratmir\AppData\Roaming\Python\Python314\site-packages\aiogram\dispatcher\event\telegram.py", line 126, in trigger
+    return await wrapped_inner(event, kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Ratmir\AppData\Roaming\Python\Python314\site-packages\aiogram\dispatcher\event\handler.py", line 71, in call
+    return await wrapped()
+           ^^^^^^^^^^^^^^^
+  File "C:\Users\Ratmir\AppData\Roaming\Python\Python314\site-packages\aiogram\dispatcher\dispatcher.py", line 283, in _listen_update
+    return await self.propagate_event(update_type=update_type, event=event, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Ratmir\AppData\Roaming\Python\Python314\site-packages\aiogram\dispatcher\router.py", line 161, in propagate_event
+    return await observer.wrap_outer_middleware(_wrapped, event=event, data=kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Ratmir\AppData\Roaming\Python\Python314\site-packages\aiogram\dispatcher\router.py", line 153, in _wrapped
+    return await self._propagate_event(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+    )
+    ^
+  File "C:\Users\Ratmir\AppData\Roaming\Python\Python314\site-packages\aiogram\dispatcher\router.py", line 181, in _propagate_event
+    response = await observer.trigger(event, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Ratmir\AppData\Roaming\Python\Python314\site-packages\aiogram\dispatcher\event\telegram.py", line 126, in trigger
+    return await wrapped_inner(event, kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Ratmir\AppData\Roaming\Python\Python314\site-packages\aiogram\dispatcher\event\handler.py", line 71, in call
+    return await wrapped()
+           ^^^^^^^^^^^^^^^
+  File "e:\MyBot\main.py", line 196, in handle_url
+    if get_user_downloads(user_id) >= FREE_LIMIT and not await is_subscribed(user_id):
+       ^^^^^^^^^^^^^^^^^^
+NameError: name 'get_user_downloads' is not defined. Did you mean: 'get_total_downloads'?
+2026-02-09 21:42:30,711 - Update id=828037615 is handled. Duration 416 ms by bot id=8331687918
+2026-02-09 21:42:37,829 - Update id=828037616 is not handled. Duration 0 ms by bot id=8331687918
+2026-02-09 21:42:37,830 - Cause exception while process update id=828037616 by bot id=8331687918
+NameError: name 'get_user_downloads' is not defined
+Traceback (most recent call last):
+  File "C:\Users\Ratmir\AppData\Roaming\Python\Python314\site-packages\aiogram\dispatcher\dispatcher.py", line 320, in _process_update
+    response = await self.feed_update(bot, update, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Ratmir\AppData\Roaming\Python\Python314\site-packages\aiogram\dispatcher\dispatcher.py", line 164, in feed_update
+    response = await self.update.wrap_outer_middleware(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<7 lines>...
+    )
+    ^
+  File "C:\Users\Ratmir\AppData\Roaming\Python\Python314\site-packages\aiogram\dispatcher\middlewares\error.py", line 27, in __call__
+    return await handler(event, data)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Ratmir\AppData\Roaming\Python\Python314\site-packages\aiogram\dispatcher\middlewares\user_context.py", line 58, in __call__
+    return await handler(event, data)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Ratmir\AppData\Roaming\Python\Python314\site-packages\aiogram\fsm\middleware.py", line 43, in __call__
+    return await handler(event, data)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Ratmir\AppData\Roaming\Python\Python314\site-packages\aiogram\dispatcher\event\telegram.py", line 126, in trigger
+    return await wrapped_inner(event, kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Ratmir\AppData\Roaming\Python\Python314\site-packages\aiogram\dispatcher\event\handler.py", line 71, in call
+    return await wrapped()
+           ^^^^^^^^^^^^^^^
+  File "C:\Users\Ratmir\AppData\Roaming\Python\Python314\site-packages\aiogram\dispatcher\dispatcher.py", line 283, in _listen_update
+    return await self.propagate_event(update_type=update_type, event=event, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Ratmir\AppData\Roaming\Python\Python314\site-packages\aiogram\dispatcher\router.py", line 161, in propagate_event
+    return await observer.wrap_outer_middleware(_wrapped, event=event, data=kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Ratmir\AppData\Roaming\Python\Python314\site-packages\aiogram\dispatcher\router.py", line 153, in _wrapped
+    return await self._propagate_event(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+    )
+    ^
+  File "C:\Users\Ratmir\AppData\Roaming\Python\Python314\site-packages\aiogram\dispatcher\router.py", line 181, in _propagate_event
+    response = await observer.trigger(event, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Ratmir\AppData\Roaming\Python\Python314\site-packages\aiogram\dispatcher\event\telegram.py", line 126, in trigger
+    return await wrapped_inner(event, kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Ratmir\AppData\Roaming\Python\Python314\site-packages\aiogram\dispatcher\event\handler.py", line 71, in call
+    return await wrapped()
+           ^^^^^^^^^^^^^^^
+  File "e:\MyBot\main.py", line 196, in handle_url
+    if get_user_downloads(user_id) >= FREE_LIMIT and not await is_subscribed(user_id):
+       ^^^^^^^^^^^^^^^^^^
+NameError: name 'get_user_downloads' is not defined. Did you mean: 'get_total_downloads'?
+2026-02-09 21:42:47,343 - Update id=828037617 is not handled. Duration 0 ms by bot id=8331687918
+2026-02-09 21:42:47,343 - Cause exception while process update id=828037617 by bot id=8331687918
+NameError: name 'get_user_downloads' is not defined
+Traceback (most recent call last):
+  File "C:\Users\Ratmir\AppData\Roaming\Python\Python314\site-packages\aiogram\dispatcher\dispatcher.py", line 320, in _process_update
+    response = await self.feed_update(bot, update, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Ratmir\AppData\Roaming\Python\Python314\site-packages\aiogram\dispatcher\dispatcher.py", line 164, in feed_update
+    response = await self.update.wrap_outer_middleware(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<7 lines>...
+    )
+    ^
+  File "C:\Users\Ratmir\AppData\Roaming\Python\Python314\site-packages\aiogram\dispatcher\middlewares\error.py", line 27, in __call__
+    return await handler(event, data)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Ratmir\AppData\Roaming\Python\Python314\site-packages\aiogram\dispatcher\middlewares\user_context.py", line 58, in __call__
+    return await handler(event, data)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Ratmir\AppData\Roaming\Python\Python314\site-packages\aiogram\fsm\middleware.py", line 43, in __call__
+    return await handler(event, data)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Ratmir\AppData\Roaming\Python\Python314\site-packages\aiogram\dispatcher\event\telegram.py", line 126, in trigger
+    return await wrapped_inner(event, kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Ratmir\AppData\Roaming\Python\Python314\site-packages\aiogram\dispatcher\event\handler.py", line 71, in call
+    return await wrapped()
+           ^^^^^^^^^^^^^^^
+  File "C:\Users\Ratmir\AppData\Roaming\Python\Python314\site-packages\aiogram\dispatcher\dispatcher.py", line 283, in _listen_update
+    return await self.propagate_event(update_type=update_type, event=event, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Ratmir\AppData\Roaming\Python\Python314\site-packages\aiogram\dispatcher\router.py", line 161, in propagate_event
+    return await observer.wrap_outer_middleware(_wrapped, event=event, data=kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Ratmir\AppData\Roaming\Python\Python314\site-packages\aiogram\dispatcher\router.py", line 153, in _wrapped
+    return await self._propagate_event(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+    )
+    ^
+  File "C:\Users\Ratmir\AppData\Roaming\Python\Python314\site-packages\aiogram\dispatcher\router.py", line 181, in _propagate_event
+    response = await observer.trigger(event, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Ratmir\AppData\Roaming\Python\Python314\site-packages\aiogram\dispatcher\event\telegram.py", line 126, in trigger
+    return await wrapped_inner(event, kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Ratmir\AppData\Roaming\Python\Python314\site-packages\aiogram\dispatcher\event\handler.py", line 71, in call
+    return await wrapped()
+           ^^^^^^^^^^^^^^^
+  File "e:\MyBot\main.py", line 196, in handle_url
+    if get_user_downloads(user_id) >= FREE_LIMIT and not await is_subscribed(user_id):
+       ^^^^^^^^^^^^^^^^^^
+NameError: name 'get_user_downloads' is not defined. Did you mean: 'get_total_downloads'?
+2026-02-09 21:44:48,220 - Start polling
+2026-02-09 21:44:48,316 - Run polling for bot @Limiktikbot id=8331687918 - 'Limiik'
+2026-02-09 21:45:07,105 - Update id=828037618 is handled. Duration 350 ms by bot id=8331687918
+2026-02-09 21:45:12,045 - Update id=828037619 is handled. Duration 385 ms by bot id=8331687918
+2026-02-09 21:45:32,446 - Update id=828037620 is handled. Duration 18931 ms by bot id=8331687918
+2026-02-09 21:48:53,925 - INFO - Start polling
+2026-02-09 21:48:54,015 - INFO - Run polling for bot @Limiktikbot id=8331687918 - 'Limiik'
+2026-02-09 21:49:03,999 - INFO - Update id=828037621 is handled. Duration 581 ms by bot id=8331687918
+2026-02-09 21:49:06,169 - INFO - Update id=828037622 is handled. Duration 455 ms by bot id=8331687918
+2026-02-09 21:49:17,139 - INFO - Update id=828037623 is handled. Duration 125 ms by bot id=8331687918
+2026-02-09 21:49:21,922 - INFO - Update id=828037624 is handled. Duration 363 ms by bot id=8331687918
+2026-02-09 21:49:23,621 - INFO - Update id=828037625 is handled. Duration 325 ms by bot id=8331687918
+2026-02-09 21:49:47,158 - INFO - Update id=828037626 is handled. Duration 1286 ms by bot id=8331687918
+2026-02-09 21:49:51,542 - ERROR - YT-DLP Error: [0;31mERROR:[0m [Instagram] DTLKu3uDIUu: This content may be inappropriate: It's unavailable for certain audiences.
+2026-02-09 21:49:51,685 - INFO - Update id=828037627 is handled. Duration 1701 ms by bot id=8331687918
+2026-02-09 21:50:06,746 - INFO - Update id=828037628 is handled. Duration 364 ms by bot id=8331687918
+2026-02-09 21:50:09,554 - ERROR - YT-DLP Error: [0;31mERROR:[0m [Instagram] DTLKu3uDIUu: This content may be inappropriate: It's unavailable for certain audiences.
+2026-02-09 21:50:09,670 - INFO - Update id=828037629 is handled. Duration 1113 ms by bot id=8331687918
+2026-02-09 21:50:41,889 - INFO - Update id=828037630 is handled. Duration 1260 ms by bot id=8331687918
+2026-02-09 21:50:57,070 - INFO - Update id=828037631 is handled. Duration 12646 ms by bot id=8331687918
+2026-02-09 21:51:10,881 - INFO - Update id=828037632 is handled. Duration 306 ms by bot id=8331687918
+2026-02-09 21:51:11,967 - INFO - Update id=828037633 is handled. Duration 346 ms by bot id=8331687918
+2026-02-09 21:51:40,514 - INFO - Update id=828037634 is handled. Duration 143 ms by bot id=8331687918
+2026-02-09 21:51:45,055 - INFO - Update id=828037635 is handled. Duration 222 ms by bot id=8331687918
+2026-02-09 22:00:45,272 - Start polling
+2026-02-09 22:00:45,369 - Run polling for bot @Limiktikbot id=8331687918 - 'Limiik'
+2026-02-09 22:02:17,945 - Update id=828037636 is handled. Duration 298 ms by bot id=8331687918
+2026-02-09 22:02:27,510 - Update id=828037637 is handled. Duration 386 ms by bot id=8331687918
+2026-02-09 22:02:30,393 - Update id=828037638 is handled. Duration 426 ms by bot id=8331687918
+2026-02-09 22:02:46,301 - Update id=828037639 is handled. Duration 863 ms by bot id=8331687918
+2026-02-09 22:02:50,760 - Download Error: [0;31mERROR:[0m [Instagram] DUgYDZHEox0: Instagram sent an empty media response. Check if this post is accessible in your browser without being logged-in. If it is not, then use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Otherwise, if the post is accessible in browser without being logged-in, please report this issue on  https://github.com/yt-dlp/yt-dlp/issues?q= , filling out the appropriate issue template. Confirm you are on the latest version using  yt-dlp -U
+2026-02-09 22:02:50,953 - Update id=828037640 is handled. Duration 1650 ms by bot id=8331687918
+2026-02-09 22:03:43,292 - Update id=828037641 is handled. Duration 392 ms by bot id=8331687918
+2026-02-09 22:03:47,761 - Download Error: [0;31mERROR:[0m [Pinterest] 800937115017275995: Requested format is not available. Use --list-formats for a list of available formats
+2026-02-09 22:03:47,887 - Update id=828037642 is handled. Duration 3509 ms by bot id=8331687918
+2026-02-09 22:29:26,415 - Start polling
+2026-02-09 22:29:26,502 - Run polling for bot @Limiktikbot id=8331687918 - 'Limiik'
+2026-02-09 22:29:41,991 - Update id=828037643 is handled. Duration 1250 ms by bot id=8331687918
+2026-02-09 22:29:50,528 - Update id=828037644 is handled. Duration 421 ms by bot id=8331687918
+2026-02-09 22:29:56,650 - Final Error: [0;31mERROR:[0m [Pinterest] 800937115017275995: Requested format is not available. Use --list-formats for a list of available formats
+2026-02-09 22:29:56,770 - Update id=828037645 is handled. Duration 4108 ms by bot id=8331687918
+2026-02-09 22:30:21,768 - Update id=828037646 is handled. Duration 1170 ms by bot id=8331687918
+2026-02-09 22:30:34,841 - Update id=828037647 is handled. Duration 11093 ms by bot id=8331687918
+2026-02-09 22:31:30,169 - Update id=828037648 is handled. Duration 1166 ms by bot id=8331687918
+2026-02-09 22:31:34,586 - Final Error: [0;31mERROR:[0m [Pinterest] 903112531548905560: Requested format is not available. Use --list-formats for a list of available formats
+2026-02-09 22:31:34,699 - Update id=828037649 is handled. Duration 2929 ms by bot id=8331687918
+2026-02-09 22:34:27,078 - Update id=828037650 is handled. Duration 1150 ms by bot id=8331687918
+2026-02-09 22:34:29,799 - Final Error: [0;31mERROR:[0m [instagram:story] 3828688766773259490: You need to log in to access this content. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies
+2026-02-09 22:34:29,909 - Update id=828037651 is handled. Duration 1377 ms by bot id=8331687918
+2026-02-09 22:39:54,403 - Start polling
+2026-02-09 22:39:54,494 - Run polling for bot @Limiktikbot id=8331687918 - 'Limiik'
+2026-02-09 22:40:16,493 - Update id=828037652 is handled. Duration 293 ms by bot id=8331687918
+2026-02-09 22:40:24,439 - Update id=828037653 is handled. Duration 1178 ms by bot id=8331687918
+2026-02-09 22:40:28,731 - Update id=828037654 is handled. Duration 2651 ms by bot id=8331687918
+2026-02-09 22:41:00,630 - Update id=828037655 is handled. Duration 374 ms by bot id=8331687918
+2026-02-09 22:41:03,906 - Update id=828037656 is handled. Duration 1774 ms by bot id=8331687918
+2026-02-09 22:41:44,420 - Update id=828037657 is handled. Duration 1240 ms by bot id=8331687918
+2026-02-09 22:41:57,515 - Update id=828037658 is handled. Duration 11713 ms by bot id=8331687918
+2026-02-09 22:42:09,207 - Update id=828037659 is handled. Duration 307 ms by bot id=8331687918
+2026-02-09 22:42:10,919 - Update id=828037660 is handled. Duration 341 ms by bot id=8331687918
+2026-02-09 22:44:31,820 - Failed to fetch updates - TelegramNetworkError: HTTP Client says - ServerDisconnectedError: Server disconnected
+2026-02-09 22:44:31,820 - Sleep for 1.000000 seconds and try again... (tryings = 0, bot id = 8331687918)
+2026-02-09 22:44:43,104 - Connection established (tryings = 1, bot id = 8331687918)

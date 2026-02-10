@@ -1,0 +1,4 @@
+aiogram
+yt-dlp
+aiohttp
+python-dotenv

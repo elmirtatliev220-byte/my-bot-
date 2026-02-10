@@ -1,0 +1,4 @@
+.env
+*.db
+downloads/
+ffmpeg.exe
