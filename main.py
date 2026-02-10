@@ -8,43 +8,26 @@ import re
 import shutil
 import logging
 import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
 from datetime import datetime
 from pathlib import Path
 from typing import List, Tuple, Any, Dict, Optional, Union
 
+# Для Webhook
+from fastapi import FastAPI, Request
+import uvicorn
+
 import static_ffmpeg
 from dotenv import load_dotenv
 
-# --- [ ТЕХНИЧЕСКИЙ ДОБАВОК ДЛЯ RENDER ] ---
-class HealthCheckHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"OK")
-    def log_message(self, format, *args): return
-
-def run_health_check():
-    port = int(os.environ.get("PORT", 10000))
-    server_address = ('0.0.0.0', port)
-    try:
-        httpd = HTTPServer(server_address, HealthCheckHandler)
-        print(f"✅ Health-check server started on port {port}")
-        httpd.serve_forever()
-    except Exception as e:
-        print(f"❌ Server error: {e}")
-
-threading.Thread(target=run_health_check, daemon=True).start()
-
+# Пытаемся добавить пути ffmpeg
 try:
     static_ffmpeg.add_paths()
 except Exception:
     pass
-# ------------------------------------------
 
 load_dotenv() 
 
-from aiogram import Bot, Dispatcher, F
+from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -52,13 +35,13 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.types import (
     InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile, Message,
-    CallbackQuery, InaccessibleMessage
+    CallbackQuery, InaccessibleMessage, Update
 )
 from aiogram.utils.chat_action import ChatActionSender
 
 import yt_dlp
 
-# --- [ КОНФИРУРАЦИЯ ] ---
+# --- [ КОНФИГУРАЦИЯ ] ---
 ADMIN_ID = 391491090        
 SUPPORT_USER = "твой_ник"   
 CHANNEL_ID = "@Bns_888" 
@@ -69,6 +52,11 @@ BASE_DIR = Path(__file__).parent
 RAW_TOKEN = os.getenv("BOT_TOKEN")
 TOKEN = RAW_TOKEN.strip() if RAW_TOKEN else ""
 PROXY = os.getenv("PROXY_URL", None) 
+
+# Для Webhook на Render
+RENDER_URL = os.getenv("RENDER_EXTERNAL_URL") # Например https://bot.onrender.com
+WEBHOOK_PATH = f"/webhook/{TOKEN}"
+WEBHOOK_URL = f"{RENDER_URL}{WEBHOOK_PATH}"
 
 def get_ffmpeg_path():
     system_ffmpeg = shutil.which("ffmpeg")
@@ -173,7 +161,6 @@ async def fetch_api_bypass(url: str, mode: str = "video") -> Tuple[Optional[str]
 
 async def download_media(url: str, mode: str, user_id: int) -> Tuple[List[str], Dict[str, Any]]:
     low_url = url.lower()
-    
     download_dir = str(BASE_DIR / "downloads")
     if os.path.exists(download_dir): shutil.rmtree(download_dir)
     os.makedirs(download_dir, exist_ok=True)
@@ -189,7 +176,6 @@ async def download_media(url: str, mode: str, user_id: int) -> Tuple[List[str], 
         'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
     }
 
-    # ДОБАВКА ДЛЯ PINTEREST (m3u8 и реферер)
     if "pinterest" in low_url or "pin.it" in low_url:
         ydl_params['referer'] = 'https://www.pinterest.com/'
         ydl_params['format'] = 'bestvideo+bestaudio/best'
@@ -210,7 +196,6 @@ async def download_media(url: str, mode: str, user_id: int) -> Tuple[List[str], 
         if 'entries' in info: info = info['entries'][0]
         
         ext = "mp3" if mode == "audio" else "mp4"
-        # Проверяем все файлы, включая .webp и .mkv (которые бывают в Pinterest)
         for f in os.listdir(download_dir):
             file_path = os.path.join(download_dir, f)
             if f.endswith(ext) or f.endswith(".webp") or f.endswith(".mkv"):
@@ -303,7 +288,7 @@ async def process_download(callback: CallbackQuery):
         async with ChatActionSender(bot=bot, chat_id=user_id, action="upload_video" if mode=="video" else "upload_voice"):
             paths, info = await download_media(url, mode, user_id)
             if not paths:
-                await load_msg.edit_text("❌ Ошибка загрузки. Ссылка не поддерживается или контент защищен.")
+                await load_msg.edit_text("❌ Ошибка загрузки. Ссылка не поддерживается.")
                 return
 
             cap = f"📝 {info.get('title', 'Без названия')}\n👤 {info.get('uploader', 'Автор неизвестен')}\n\n📥 @{BOT_USERNAME}"
@@ -352,14 +337,13 @@ async def admin_panel(callback: CallbackQuery):
 @dp.callback_query(F.data == "admin_broadcast")
 async def broadcast_start(callback: CallbackQuery, state: FSMContext):
     await state.set_state(AdminStates.waiting_for_broadcast_msg)
-    await callback.message.answer("📩 Пришлите сообщение (текст, фото, видео), которое нужно разослать всем:")
+    await callback.message.answer("📩 Сообщение для рассылки:")
     await callback.answer()
 
 @dp.message(AdminStates.waiting_for_broadcast_msg)
 async def broadcast_execute(message: Message, state: FSMContext):
     with get_db() as conn:
         users = conn.execute("SELECT user_id FROM users").fetchall()
-    
     count = 0
     for user in users:
         try:
@@ -367,54 +351,54 @@ async def broadcast_execute(message: Message, state: FSMContext):
             count += 1
             await asyncio.sleep(0.05)
         except: continue
-    
-    await message.answer(f"✅ Рассылка завершена!\nУспешно отправлено: <b>{count}</b> пользователям.")
+    await message.answer(f"✅ Успешно отправлено: <b>{count}</b>.")
     await state.clear()
 
 @dp.callback_query(F.data == "edit_ad")
 async def ad_start(c: CallbackQuery, state: FSMContext):
     await state.set_state(AdminStates.waiting_for_ad_text)
     await c.message.answer("Введите текст кнопки и ссылку через пробел:")
-    await c.answer()
 
 @dp.message(AdminStates.waiting_for_ad_text)
 async def ad_save(m: Message, state: FSMContext):
-    if not m.text: return
     try:
         txt, link = m.text.rsplit(" ", 1)
         with get_db() as conn:
             conn.execute("UPDATE settings SET value = ? WHERE key = 'ad_text'", (txt,))
             conn.execute("UPDATE settings SET value = ? WHERE key = 'ad_url'", (link,))
-        await m.answer("✅ Реклама обновлена!")
-        await state.clear()
-    except:
-        await m.answer("❌ Ошибка. Формат: Текст Ссылка")
+        await m.answer("✅ Готово!"); await state.clear()
+    except: await m.answer("❌ Формат: Текст Ссылка")
 
 @dp.callback_query(F.data == "check_sub")
 async def ch_sb(c: CallbackQuery):
-    if await is_subscribed(c.from_user.id):
-        await c.message.edit_text("✅ Подписка подтверждена!")
-    else:
-        await c.answer("❌ Сначала подпишись!", show_alert=True)
+    if await is_subscribed(c.from_user.id): await c.message.edit_text("✅ Ок!"); else: await c.answer("❌ Подпишись!", show_alert=True)
 
 @dp.callback_query(F.data == "get_support")
 async def support_handler(callback: CallbackQuery):
-    await callback.message.answer(f"🛠 По всем вопросам пишите: @{SUPPORT_USER}")
-    await callback.answer()
+    await callback.message.answer(f"🛠 @{SUPPORT_USER}")
 
 @dp.callback_query(F.data == "close_admin")
 async def close_admin_handler(callback: CallbackQuery):
-    if callback.message:
-        await callback.message.delete()
+    if callback.message: await callback.message.delete()
 
-async def main():
+# --- [ WEBHOOK СЕРВЕР ] ---
+app = FastAPI()
+
+@app.on_event("startup")
+async def on_startup():
     init_db()
-    print(f"🚀 Бот запущен! FFmpeg: {FFMPEG_EXE}")
-    await bot.delete_webhook(drop_pending_updates=True)
-    await dp.start_polling(bot)
+    await bot.set_webhook(url=WEBHOOK_URL, drop_pending_updates=True)
+
+@app.post(WEBHOOK_PATH)
+async def bot_webhook(request: Request):
+    update = Update.model_validate(await request.json(), context={"bot": bot})
+    await dp.feed_update(bot, update)
+    return {"ok": True}
+
+@app.get("/")
+async def health_check():
+    return {"status": "ok", "bot": BOT_USERNAME}
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except (KeyboardInterrupt, SystemExit):
-        print("Выход...")
+    port = int(os.environ.get("PORT", 10000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
