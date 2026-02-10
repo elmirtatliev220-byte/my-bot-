@@ -22,10 +22,12 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.end_headers()
         self.wfile.write(b"OK")
+    def log_message(self, format, *args): return
 
 def run_health_check():
+    port = int(os.environ.get("PORT", 10000))
     try:
-        server = HTTPServer(('0.0.0.0', 10000), HealthCheckHandler)
+        server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
         server.serve_forever()
     except Exception:
         pass
@@ -152,7 +154,7 @@ async def fetch_api_bypass(url: str) -> Tuple[Optional[str], Optional[str], Opti
     payload = {"url": url, "vCodec": "h264"}
     async with aiohttp.ClientSession() as session:
         try:
-            async with session.post(api_url, json=payload, headers=headers) as resp:
+            async with session.post(api_url, json=payload, headers=headers, timeout=15) as resp:
                 if resp.status == 200:
                     data = await resp.json()
                     return data.get("url"), "Social Media", data.get("filename", "Video")
@@ -161,7 +163,9 @@ async def fetch_api_bypass(url: str) -> Tuple[Optional[str], Optional[str], Opti
 
 async def download_media(url: str, mode: str, user_id: int) -> Tuple[List[str], Dict[str, Any]]:
     low_url = url.lower()
-    if any(x in low_url for x in ["instagram.com", "pinterest.com", "pin.it"]):
+    
+    # ПРИНУДИТЕЛЬНЫЙ ОБХОД ДЛЯ YOUTUBE И INSTAGRAM
+    if any(x in low_url for x in ["youtube.com", "youtu.be", "instagram.com", "pinterest.com", "pin.it"]):
         link, author, title = await fetch_api_bypass(url)
         if link: return [link], {"uploader": author, "title": title}
 
@@ -176,6 +180,7 @@ async def download_media(url: str, mode: str, user_id: int) -> Tuple[List[str], 
         'outtmpl': f"{download_dir}/%(id)s.%(ext)s",
         'ffmpeg_location': FFMPEG_EXE,
         'format': "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" if mode == "video" else "bestaudio/best",
+        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
     }
     
     if mode == "audio":
@@ -211,7 +216,6 @@ async def start_cmd(message: Message):
         conn.execute("INSERT OR IGNORE INTO users (user_id, username, joined) VALUES (?, ?, ?)", 
                     (message.from_user.id, message.from_user.username or f"id_{message.from_user.id}", datetime.now().isoformat()))
     
-    # ВОССТАНОВЛЕНО ПО ФОТО
     text = (
         f"👋 <b>Привет, {message.from_user.first_name}!</b>\n\n"
         f"Я помогу тебе скачать видео без\nводяных знаков:\n"
@@ -284,7 +288,7 @@ async def process_download(callback: CallbackQuery):
         async with ChatActionSender(bot=bot, chat_id=user_id, action="upload_video" if mode=="video" else "upload_voice"):
             paths, info = await download_media(url, mode, user_id)
             if not paths:
-                await load_msg.edit_text("❌ Не удалось скачать видео. Возможно, ссылка защищена или недоступна.")
+                await load_msg.edit_text("❌ Не удалось скачать видео. Попробуйте другую ссылку.")
                 return
 
             cap = f"📝 {info.get('title', 'Без названия')}\n👤 {info.get('uploader', 'Автор неизвестен')}\n\n📥 @{BOT_USERNAME}"
@@ -313,7 +317,7 @@ async def process_download(callback: CallbackQuery):
             await load_msg.delete()
             
     except Exception as e:
-        await load_msg.edit_text(f"❌ Произошла ошибка: {str(e)}")
+        await load_msg.edit_text(f"❌ Произошла ошибка.")
 
 # --- [ АДМИН-ПАНЕЛЬ ] ---
 
