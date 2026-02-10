@@ -7,15 +7,40 @@ import aiohttp
 import re
 import shutil
 import logging
-import static_ffmpeg  # Добавили для работы на сервере
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from datetime import datetime
 from pathlib import Path
 from typing import List, Tuple, Any, Dict, Optional, Union
 
-# Активируем пути FFmpeg для сервера
-static_ffmpeg.add_paths()
-
+import static_ffmpeg
 from dotenv import load_dotenv
+
+# --- [ ТЕХНИЧЕСКИЙ БЛОК ДЛЯ RENDER ] ---
+# Создаем сервер-заглушку, чтобы Render не убивал бота по тайм-ауту порта
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"OK")
+
+def run_health_check():
+    try:
+        server = HTTPServer(('0.0.0.0', 10000), HealthCheckHandler)
+        server.serve_forever()
+    except Exception as e:
+        logging.error(f"Health check server error: {e}")
+
+# Запускаем в отдельном потоке
+threading.Thread(target=run_health_check, daemon=True).start()
+
+# Активируем пути FFmpeg
+try:
+    static_ffmpeg.add_paths()
+except Exception as e:
+    print(f"FFmpeg path error: {e}")
+# ---------------------------------------
+
 load_dotenv() 
 
 from aiogram import Bot, Dispatcher, F
@@ -33,7 +58,7 @@ from aiogram.utils.chat_action import ChatActionSender
 import yt_dlp
 
 # --- [ КОНФИГУРАЦИЯ ] ---
-ADMIN_ID = 391491090        # ЗАМЕНИ НА СВОЙ ID
+ADMIN_ID = 123456789        # ТВОЙ ID ЗДЕСЬ
 SUPPORT_USER = "твой_ник"   
 CHANNEL_ID = "@Bns_888" 
 CHANNEL_URL = "https://t.me/Bns_888" 
@@ -44,7 +69,6 @@ RAW_TOKEN = os.getenv("BOT_TOKEN")
 TOKEN = RAW_TOKEN.strip() if RAW_TOKEN else ""
 PROXY = os.getenv("PROXY_URL", None) 
 
-# УНИВЕРСАЛЬНЫЙ ПОИСК FFMPEG
 def get_ffmpeg_path():
     system_ffmpeg = shutil.which("ffmpeg")
     if system_ffmpeg:
@@ -368,6 +392,4 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("Выход...") 
- 
- 
+        print("Выход...")
