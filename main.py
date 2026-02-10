@@ -371,7 +371,11 @@ async def ad_save(m: Message, state: FSMContext):
 
 @dp.callback_query(F.data == "check_sub")
 async def ch_sb(c: CallbackQuery):
-    if await is_subscribed(c.from_user.id): await c.message.edit_text("✅ Ок!"); else: await c.answer("❌ Подпишись!", show_alert=True)
+    # ИСПРАВЛЕННАЯ СТРОКА 374:
+    if await is_subscribed(c.from_user.id):
+        await c.message.edit_text("✅ Ок!")
+    else:
+        await c.answer("❌ Подпишись!", show_alert=True)
 
 @dp.callback_query(F.data == "get_support")
 async def support_handler(callback: CallbackQuery):
