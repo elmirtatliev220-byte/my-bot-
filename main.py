@@ -58,7 +58,7 @@ from aiogram.utils.chat_action import ChatActionSender
 
 import yt_dlp
 
-# --- [ КОНФИГУРАЦИЯ ] ---
+# --- [ КОНФИРУРАЦИЯ ] ---
 ADMIN_ID = 391491090        
 SUPPORT_USER = "твой_ник"   
 CHANNEL_ID = "@Bns_888" 
@@ -173,11 +173,11 @@ async def fetch_api_bypass(url: str, mode: str = "video") -> Tuple[Optional[str]
 
 async def download_media(url: str, mode: str, user_id: int) -> Tuple[List[str], Dict[str, Any]]:
     low_url = url.lower()
+    
     download_dir = str(BASE_DIR / "downloads")
     if os.path.exists(download_dir): shutil.rmtree(download_dir)
     os.makedirs(download_dir, exist_ok=True)
     
-    # Специальная настройка для Pinterest (m3u8/hls поддержка)
     ydl_params = {
         'quiet': True,
         'no_warnings': True,
@@ -189,10 +189,11 @@ async def download_media(url: str, mode: str, user_id: int) -> Tuple[List[str], 
         'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
     }
 
+    # ДОБАВКА ДЛЯ PINTEREST (m3u8 и реферер)
     if "pinterest" in low_url or "pin.it" in low_url:
         ydl_params['referer'] = 'https://www.pinterest.com/'
-        ydl_params['format'] = 'bestvideo+bestaudio/best' # Позволяет стягивать m3u8
-
+        ydl_params['format'] = 'bestvideo+bestaudio/best'
+    
     if mode == "audio":
         ydl_params['postprocessors'] = [{
             'key': 'FFmpegExtractAudio',
@@ -209,10 +210,11 @@ async def download_media(url: str, mode: str, user_id: int) -> Tuple[List[str], 
         if 'entries' in info: info = info['entries'][0]
         
         ext = "mp3" if mode == "audio" else "mp4"
-        # Проверка всех файлов, включая результат конвертации m3u8
+        # Проверяем все файлы, включая .webp и .mkv (которые бывают в Pinterest)
         for f in os.listdir(download_dir):
-            if f.endswith(ext) or f.endswith(".webp"):
-                return [os.path.join(download_dir, f)], info
+            file_path = os.path.join(download_dir, f)
+            if f.endswith(ext) or f.endswith(".webp") or f.endswith(".mkv"):
+                return [file_path], info
         return [], {}
     except Exception as e:
         logging.error(f"yt-dlp error: {e}")
