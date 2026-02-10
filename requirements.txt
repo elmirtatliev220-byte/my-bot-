@@ -3,3 +3,5 @@ yt-dlp
 aiohttp
 python-dotenv
 static-ffmpeg
+fastapi
+uvicorn
