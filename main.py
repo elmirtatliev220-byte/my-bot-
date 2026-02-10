@@ -42,7 +42,7 @@ from aiogram.utils.chat_action import ChatActionSender
 import yt_dlp
 
 # --- [ КОНФИГУРАЦИЯ ] ---
-ADMIN_ID = 391491090        
+ADMIN_ID = 391491090         
 SUPPORT_USER = "твой_ник"   
 CHANNEL_ID = "@Bns_888" 
 CHANNEL_URL = "https://t.me/Bns_888" 
@@ -53,8 +53,10 @@ RAW_TOKEN = os.getenv("BOT_TOKEN")
 TOKEN = RAW_TOKEN.strip() if RAW_TOKEN else ""
 PROXY = os.getenv("PROXY_URL", None) 
 
-# Для Webhook на Render
-RENDER_URL = os.getenv("https://my-bot-zxps.onrender.com") # Например https://bot.onrender.com
+# --- [ ИСПРАВЛЕННЫЙ БЛОК WEBHOOK ] ---
+# Мы используем переменную RENDER_EXTERNAL_URL, которую Render предоставляет автоматически,
+# либо подставляем ваш прямой адрес, если переменная не найдена.
+RENDER_URL = os.getenv("RENDER_EXTERNAL_URL") or "https://my-bot-zxps.onrender.com"
 WEBHOOK_PATH = f"/webhook/{TOKEN}"
 WEBHOOK_URL = f"{RENDER_URL}{WEBHOOK_PATH}"
 
@@ -250,7 +252,7 @@ async def handle_url(message: Message):
         conn.execute("INSERT OR REPLACE INTO url_shorter VALUES (?, ?)", (v_id, message.text))
     
     kb = [[InlineKeyboardButton(text="🎬 Видео", callback_data=f"v_{v_id}"),
-           InlineKeyboardButton(text="🎵 Аудио", callback_data=f"a_{v_id}")]]
+            InlineKeyboardButton(text="🎵 Аудио", callback_data=f"a_{v_id}")]]
     await message.answer("🎥 В каком формате скачать?", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
 
 @dp.callback_query(F.data.regexp(r"^[va]_"))
@@ -371,7 +373,6 @@ async def ad_save(m: Message, state: FSMContext):
 
 @dp.callback_query(F.data == "check_sub")
 async def ch_sb(c: CallbackQuery):
-    # ИСПРАВЛЕННАЯ СТРОКА 374:
     if await is_subscribed(c.from_user.id):
         await c.message.edit_text("✅ Ок!")
     else:
