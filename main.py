@@ -16,8 +16,7 @@ from typing import List, Tuple, Any, Dict, Optional, Union
 import static_ffmpeg
 from dotenv import load_dotenv
 
-# --- [ ТЕХНИЧЕСКИЙ БЛОК ДЛЯ RENDER ] ---
-# Создаем сервер-заглушку, чтобы Render не убивал бота по тайм-ауту порта
+# --- [ ТЕХНИЧЕСКИЙ ДОБАВОК ДЛЯ RENDER ] ---
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -28,18 +27,16 @@ def run_health_check():
     try:
         server = HTTPServer(('0.0.0.0', 10000), HealthCheckHandler)
         server.serve_forever()
-    except Exception as e:
-        logging.error(f"Health check server error: {e}")
+    except Exception:
+        pass
 
-# Запускаем в отдельном потоке
 threading.Thread(target=run_health_check, daemon=True).start()
 
-# Активируем пути FFmpeg
 try:
     static_ffmpeg.add_paths()
-except Exception as e:
-    print(f"FFmpeg path error: {e}")
-# ---------------------------------------
+except Exception:
+    pass
+# ------------------------------------------
 
 load_dotenv() 
 
@@ -58,7 +55,7 @@ from aiogram.utils.chat_action import ChatActionSender
 import yt_dlp
 
 # --- [ КОНФИГУРАЦИЯ ] ---
-ADMIN_ID = 123456789        # ТВОЙ ID ЗДЕСЬ
+ADMIN_ID = 391491090        
 SUPPORT_USER = "твой_ник"   
 CHANNEL_ID = "@Bns_888" 
 CHANNEL_URL = "https://t.me/Bns_888" 
@@ -153,8 +150,7 @@ async def fetch_api_bypass(url: str) -> Tuple[Optional[str], Optional[str], Opti
     api_url = "https://api.cobalt.tools/api/json"
     headers = {"Accept": "application/json", "Content-Type": "application/json"}
     payload = {"url": url, "vCodec": "h264"}
-    timeout = aiohttp.ClientTimeout(total=15)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
+    async with aiohttp.ClientSession() as session:
         try:
             async with session.post(api_url, json=payload, headers=headers) as resp:
                 if resp.status == 200:
@@ -172,7 +168,7 @@ async def download_media(url: str, mode: str, user_id: int) -> Tuple[List[str], 
     download_dir = str(BASE_DIR / "downloads")
     os.makedirs(download_dir, exist_ok=True)
     
-    ydl_params: Dict[str, Any] = {
+    ydl_params = {
         'quiet': True,
         'no_warnings': True,
         'noplaylist': True,
@@ -215,7 +211,18 @@ async def start_cmd(message: Message):
         conn.execute("INSERT OR IGNORE INTO users (user_id, username, joined) VALUES (?, ?, ?)", 
                     (message.from_user.id, message.from_user.username or f"id_{message.from_user.id}", datetime.now().isoformat()))
     
-    text = f"👋 Привет, {message.from_user.first_name}!\nПришли ссылку на видео из TikTok, Instagram, YouTube или VK."
+    # ВОССТАНОВЛЕНО ПО ФОТО
+    text = (
+        f"👋 <b>Привет, {message.from_user.first_name}!</b>\n\n"
+        f"Я помогу тебе скачать видео без\nводяных знаков:\n"
+        f"————————————————\n"
+        f"✨ <b>TikTok</b> | 📸 <b>Instagram</b>\n"
+        f"📌 <b>Pinterest</b> | 📺 <b>YouTube</b>\n"
+        f"🔵 <b>VK Видео/Клипы</b>\n"
+        f"————————————————\n"
+        f"📍 <i>Просто пришли мне ссылку!</i>"
+    )
+    
     kb = [[InlineKeyboardButton(text="🆘 Поддержка", callback_data="get_support")]]
     if message.from_user.id == ADMIN_ID:
         kb.insert(0, [InlineKeyboardButton(text="🛠 Админ-панель", callback_data="admin_main")])
