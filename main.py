@@ -164,14 +164,21 @@ async def fetch_api_bypass(url: str) -> Tuple[Optional[str], Optional[str], Opti
 async def download_media(url: str, mode: str, user_id: int) -> Tuple[List[str], Dict[str, Any]]:
     low_url = url.lower()
     
-    # ПРИНУДИТЕЛЬНЫЙ ОБХОД ДЛЯ YOUTUBE И INSTAGRAM
+    # 1. ПРИНУДИТЕЛЬНЫЙ ОБХОД ДЛЯ СЛОЖНЫХ СЕРВИСОВ
     if any(x in low_url for x in ["youtube.com", "youtu.be", "instagram.com", "pinterest.com", "pin.it"]):
         link, author, title = await fetch_api_bypass(url)
         if link: return [link], {"uploader": author, "title": title}
 
+    # 2. СТАНДАРТНАЯ ЗАГРУЗКА (ДЛЯ TIKTOK/VK И ДРУГИХ)
     download_dir = str(BASE_DIR / "downloads")
     os.makedirs(download_dir, exist_ok=True)
     
+    # Исправление для Pinterest: используем 'best', если yt-dlp все же вызывается
+    if "pinterest" in low_url or "pin.it" in low_url:
+        target_format = "best"
+    else:
+        target_format = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
+
     ydl_params = {
         'quiet': True,
         'no_warnings': True,
@@ -179,7 +186,7 @@ async def download_media(url: str, mode: str, user_id: int) -> Tuple[List[str], 
         'proxy': PROXY,
         'outtmpl': f"{download_dir}/%(id)s.%(ext)s",
         'ffmpeg_location': FFMPEG_EXE,
-        'format': "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" if mode == "video" else "bestaudio/best",
+        'format': target_format if mode == "video" else "bestaudio/best",
         'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
     }
     
@@ -200,10 +207,14 @@ async def download_media(url: str, mode: str, user_id: int) -> Tuple[List[str], 
         
         ext = "mp3" if mode == "audio" else "mp4"
         for f in os.listdir(download_dir):
-            if info.get('id', 'none') in f and f.endswith(ext):
+            if info.get('id', 'none') in f and (f.endswith(ext) or mode == "video"):
                 return [os.path.join(download_dir, f)], info
         return [], {}
     except Exception as e:
+        # Если yt-dlp упал на YouTube, пробуем Bypass еще раз как последний шанс
+        if "youtube" in low_url:
+             link, author, title = await fetch_api_bypass(url)
+             if link: return [link], {"uploader": author, "title": title}
         logging.error(f"Download error: {e}")
         return [], {}
 
@@ -288,7 +299,7 @@ async def process_download(callback: CallbackQuery):
         async with ChatActionSender(bot=bot, chat_id=user_id, action="upload_video" if mode=="video" else "upload_voice"):
             paths, info = await download_media(url, mode, user_id)
             if not paths:
-                await load_msg.edit_text("❌ Не удалось скачать видео. Попробуйте другую ссылку.")
+                await load_msg.edit_text("❌ Ошибка загрузки. Возможно, видео защищено или формат недоступен.")
                 return
 
             cap = f"📝 {info.get('title', 'Без названия')}\n👤 {info.get('uploader', 'Автор неизвестен')}\n\n📥 @{BOT_USERNAME}"
