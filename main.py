@@ -152,26 +152,29 @@ async def is_subscribed(user_id: int) -> bool:
 
 # --- [ СИСТЕМА ЗАГРУЗКИ ] ---
 
-async def fetch_api_bypass(url: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+async def fetch_api_bypass(url: str, mode: str = "video") -> Tuple[Optional[str], Optional[str], Optional[str]]:
     api_url = "https://api.cobalt.tools/api/json"
     headers = {
         "Accept": "application/json", 
         "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
     }
     payload = {
         "url": url, 
         "vCodec": "h264",
-        "videoQuality": "720"
+        "videoQuality": "720",
+        "isAudioOnly": True if mode == "audio" else False,
+        "isNoWatermark": True
     }
     async with aiohttp.ClientSession() as session:
         try:
-            async with session.post(api_url, json=payload, headers=headers, timeout=20) as resp:
+            async with session.post(api_url, json=payload, headers=headers, timeout=25) as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    # Если API вернул прямую ссылку
                     if "url" in data:
-                        return data.get("url"), "Social Media", data.get("filename", "Video")
+                        return data.get("url"), "Social Media", data.get("filename", "Media")
+                    elif "picker" in data and len(data["picker"]) > 0:
+                        return data["picker"][0].get("url"), "Social Media", "Media"
         except Exception as e:
             logging.error(f"Cobalt Error: {e}")
     return None, None, None
@@ -181,11 +184,12 @@ async def download_media(url: str, mode: str, user_id: int) -> Tuple[List[str], 
     
     # ПРИНУДИТЕЛЬНО ДЛЯ YOUTUBE/PINTEREST/INSTAGRAM (Блокируют серверные IP)
     if any(x in low_url for x in ["youtube.com", "youtu.be", "instagram.com", "pinterest.com", "pin.it"]):
-        link, author, title = await fetch_api_bypass(url)
+        link, author, title = await fetch_api_bypass(url, mode)
         if link: return [link], {"uploader": author, "title": title}
 
     # ДЛЯ ОСТАЛЬНЫХ (TikTok/VK)
     download_dir = str(BASE_DIR / "downloads")
+    if os.path.exists(download_dir): shutil.rmtree(download_dir)
     os.makedirs(download_dir, exist_ok=True)
     
     ydl_params = {
@@ -221,7 +225,7 @@ async def download_media(url: str, mode: str, user_id: int) -> Tuple[List[str], 
         return [], {}
     except Exception as e:
         # Если yt-dlp подвёл, пробуем API еще раз
-        link, author, title = await fetch_api_bypass(url)
+        link, author, title = await fetch_api_bypass(url, mode)
         if link: return [link], {"uploader": author, "title": title}
         logging.error(f"Final DL error: {e}")
         return [], {}
@@ -420,6 +424,7 @@ async def main():
 
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
+        async with asyncio.Runner() as runner:
+            runner.run(main())
+    except (KeyboardInterrupt, SystemExit):
         print("Выход...")
