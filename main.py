@@ -16,7 +16,7 @@ from typing import List, Tuple, Any, Dict, Optional, Union
 import static_ffmpeg
 from dotenv import load_dotenv
 
-# --- [ ТЕХНИЧЕСКИЙ ДОБАВОК ДЛЯ RENDER ] ---
+# --- [ ТЕХНИЧЕСКИЙ ДОБАВОК ДЛЯ RENDER: ИСПРАВЛЕН ] ---
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -25,13 +25,17 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args): return
 
 def run_health_check():
+    # Render требует привязки к 0.0.0.0 и порту из переменной PORT
     port = int(os.environ.get("PORT", 10000))
+    server_address = ('0.0.0.0', port)
     try:
-        server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
-        server.serve_forever()
-    except Exception:
-        pass
+        httpd = HTTPServer(server_address, HealthCheckHandler)
+        print(f"✅ Health-check server started on port {port}")
+        httpd.serve_forever()
+    except Exception as e:
+        print(f"❌ Server error: {e}")
 
+# Запуск сервера в отдельном потоке
 threading.Thread(target=run_health_check, daemon=True).start()
 
 try:
@@ -150,38 +154,37 @@ async def is_subscribed(user_id: int) -> bool:
 
 async def fetch_api_bypass(url: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
     api_url = "https://api.cobalt.tools/api/json"
-    headers = {"Accept": "application/json", "Content-Type": "application/json"}
-    # Настройка Cobalt для разных типов контента
+    headers = {
+        "Accept": "application/json", 
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36"
+    }
     payload = {
         "url": url, 
         "vCodec": "h264",
-        "videoQuality": "720",
-        "isAudioOnly": False
+        "videoQuality": "720"
     }
     async with aiohttp.ClientSession() as session:
         try:
             async with session.post(api_url, json=payload, headers=headers, timeout=20) as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    # Если API вернуло статус "stream" или "video", берем ссылку
-                    return data.get("url"), "Social Media", data.get("filename", "Media")
-        except: pass
+                    # Если API вернул прямую ссылку
+                    if "url" in data:
+                        return data.get("url"), "Social Media", data.get("filename", "Video")
+        except Exception as e:
+            logging.error(f"Cobalt Error: {e}")
     return None, None, None
 
 async def download_media(url: str, mode: str, user_id: int) -> Tuple[List[str], Dict[str, Any]]:
     low_url = url.lower()
     
-    # --- [ УЛЬТИМАТИВНЫЙ ФИКС ] ---
-    # Для YouTube, Pinterest и Instagram используем ТОЛЬКО обходной API
-    # так как серверные IP Render заблокированы сервисами напрямую.
+    # ПРИНУДИТЕЛЬНО ДЛЯ YOUTUBE/PINTEREST/INSTAGRAM (Блокируют серверные IP)
     if any(x in low_url for x in ["youtube.com", "youtu.be", "instagram.com", "pinterest.com", "pin.it"]):
         link, author, title = await fetch_api_bypass(url)
-        if link: 
-            return [link], {"uploader": author, "title": title}
-        else:
-            logging.error(f"Cobalt API could not process: {url}")
+        if link: return [link], {"uploader": author, "title": title}
 
-    # Для TikTok, VK и других используем стандартный yt-dlp
+    # ДЛЯ ОСТАЛЬНЫХ (TikTok/VK)
     download_dir = str(BASE_DIR / "downloads")
     os.makedirs(download_dir, exist_ok=True)
     
@@ -217,10 +220,10 @@ async def download_media(url: str, mode: str, user_id: int) -> Tuple[List[str], 
                 return [os.path.join(download_dir, f)], info
         return [], {}
     except Exception as e:
-        logging.error(f"Standard DL error: {e}")
-        # Если даже тут упало, последний шанс — еще раз API
+        # Если yt-dlp подвёл, пробуем API еще раз
         link, author, title = await fetch_api_bypass(url)
         if link: return [link], {"uploader": author, "title": title}
+        logging.error(f"Final DL error: {e}")
         return [], {}
 
 # --- [ ХЕНДЛЕРЫ ] ---
@@ -304,7 +307,7 @@ async def process_download(callback: CallbackQuery):
         async with ChatActionSender(bot=bot, chat_id=user_id, action="upload_video" if mode=="video" else "upload_voice"):
             paths, info = await download_media(url, mode, user_id)
             if not paths:
-                await load_msg.edit_text("❌ Ошибка загрузки. Возможно, видео защищено или формат недоступен.")
+                await load_msg.edit_text("❌ Ошибка загрузки. Ссылка не поддерживается или контент защищен.")
                 return
 
             cap = f"📝 {info.get('title', 'Без названия')}\n👤 {info.get('uploader', 'Автор неизвестен')}\n\n📥 @{BOT_USERNAME}"
@@ -333,7 +336,7 @@ async def process_download(callback: CallbackQuery):
             await load_msg.delete()
             
     except Exception as e:
-        await load_msg.edit_text(f"❌ Произошла ошибка.")
+        await load_msg.edit_text(f"❌ Произошла ошибка при отправке.")
 
 # --- [ АДМИН-ПАНЕЛЬ ] ---
 
