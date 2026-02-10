@@ -53,9 +53,7 @@ RAW_TOKEN = os.getenv("BOT_TOKEN")
 TOKEN = RAW_TOKEN.strip() if RAW_TOKEN else ""
 PROXY = os.getenv("PROXY_URL", None) 
 
-# --- [ ИСПРАВЛЕННЫЙ БЛОК WEBHOOK ] ---
-# Мы используем переменную RENDER_EXTERNAL_URL, которую Render предоставляет автоматически,
-# либо подставляем ваш прямой адрес, если переменная не найдена.
+# --- [ WEBHOOK КОНФИГУРАЦИЯ ] ---
 RENDER_URL = os.getenv("RENDER_EXTERNAL_URL") or "https://my-bot-zxps.onrender.com"
 WEBHOOK_PATH = f"/webhook/{TOKEN}"
 WEBHOOK_URL = f"{RENDER_URL}{WEBHOOK_PATH}"
@@ -242,10 +240,17 @@ async def handle_url(message: Message):
     with get_db() as conn:
         res = conn.execute("SELECT downloads_count FROM users WHERE user_id = ?", (user_id,)).fetchone()
         count = res[0] if res else 0
-        if count >= FREE_LIMIT and not await is_subscribed(user_id):
-            kb = [[InlineKeyboardButton(text="✅ Подписаться", url=CHANNEL_URL)],
-                  [InlineKeyboardButton(text="🔄 Проверить подписку", callback_data="check_sub")]]
-            return await message.answer("⚠️ Лимит исчерпан! Подпишитесь на канал, чтобы продолжить:", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
+        
+        # ЛОГИКА ЛИМИТА: Если скачиваний больше или равно 3, проверяем подписку
+        if count >= FREE_LIMIT:
+            if not await is_subscribed(user_id):
+                kb = [[InlineKeyboardButton(text="✅ Подписаться", url=CHANNEL_URL)],
+                      [InlineKeyboardButton(text="🔄 Проверить подписку", callback_data="check_sub")]]
+                return await message.answer(
+                    f"⚠️ <b>Лимит исчерпан!</b>\n\nВы уже скачали {FREE_LIMIT} видео. "
+                    "Чтобы продолжить скачивать без ограничений, подпишитесь на наш канал:", 
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=kb)
+                )
 
     v_id = hashlib.md5(message.text.encode()).hexdigest()[:10]
     with get_db() as conn:
@@ -259,6 +264,14 @@ async def handle_url(message: Message):
 async def process_download(callback: CallbackQuery):
     if not callback.from_user or not callback.message or not callback.data: return
     user_id = callback.from_user.id
+    
+    # Дополнительная проверка перед скачиванием
+    with get_db() as conn:
+        res = conn.execute("SELECT downloads_count FROM users WHERE user_id = ?", (user_id,)).fetchone()
+        count = res[0] if res else 0
+        if count >= FREE_LIMIT and not await is_subscribed(user_id):
+            return await callback.answer("❌ Сначала подпишитесь на канал!", show_alert=True)
+
     prefix, v_id = callback.data.split("_")
     mode = "video" if prefix == "v" else "audio"
     
@@ -374,9 +387,9 @@ async def ad_save(m: Message, state: FSMContext):
 @dp.callback_query(F.data == "check_sub")
 async def ch_sb(c: CallbackQuery):
     if await is_subscribed(c.from_user.id):
-        await c.message.edit_text("✅ Ок!")
+        await c.message.edit_text("✅ Спасибо за подписку! Теперь вы можете скачивать без ограничений. Просто пришлите ссылку снова.")
     else:
-        await c.answer("❌ Подпишись!", show_alert=True)
+        await c.answer("❌ Вы всё еще не подписаны на канал!", show_alert=True)
 
 @dp.callback_query(F.data == "get_support")
 async def support_handler(callback: CallbackQuery):
