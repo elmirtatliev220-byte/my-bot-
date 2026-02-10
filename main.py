@@ -25,7 +25,6 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args): return
 
 def run_health_check():
-    # Render требует привязки к 0.0.0.0 и порту из переменной PORT
     port = int(os.environ.get("PORT", 10000))
     server_address = ('0.0.0.0', port)
     try:
@@ -35,7 +34,6 @@ def run_health_check():
     except Exception as e:
         print(f"❌ Server error: {e}")
 
-# Запуск сервера в отдельном потоке
 threading.Thread(target=run_health_check, daemon=True).start()
 
 try:
@@ -168,11 +166,11 @@ async def fetch_api_bypass(url: str, mode: str = "video") -> Tuple[Optional[str]
     }
     async with aiohttp.ClientSession() as session:
         try:
-            async with session.post(api_url, json=payload, headers=headers, timeout=25) as resp:
+            async with session.post(api_url, json=payload, headers=headers, timeout=30) as resp:
                 if resp.status == 200:
                     data = await resp.json()
                     if "url" in data:
-                        return data.get("url"), "Social Media", data.get("filename", "Media")
+                        return data.get("url"), data.get("author", "Social Media"), data.get("filename", "Media")
                     elif "picker" in data and len(data["picker"]) > 0:
                         return data["picker"][0].get("url"), "Social Media", "Media"
         except Exception as e:
@@ -182,14 +180,9 @@ async def fetch_api_bypass(url: str, mode: str = "video") -> Tuple[Optional[str]
 async def download_media(url: str, mode: str, user_id: int) -> Tuple[List[str], Dict[str, Any]]:
     low_url = url.lower()
     
-    # ПРИНУДИТЕЛЬНО ДЛЯ YOUTUBE/PINTEREST/INSTAGRAM (Блокируют серверные IP)
-    if any(x in low_url for x in ["youtube.com", "youtu.be", "instagram.com", "pinterest.com", "pin.it"]):
-        link, author, title = await fetch_api_bypass(url, mode)
-        if link: return [link], {"uploader": author, "title": title}
-
-    # ДЛЯ ОСТАЛЬНЫХ (TikTok/VK)
     download_dir = str(BASE_DIR / "downloads")
-    if os.path.exists(download_dir): shutil.rmtree(download_dir)
+    if os.path.exists(download_dir):
+        shutil.rmtree(download_dir)
     os.makedirs(download_dir, exist_ok=True)
     
     ydl_params = {
@@ -215,19 +208,23 @@ async def download_media(url: str, mode: str, user_id: int) -> Tuple[List[str], 
             with yt_dlp.YoutubeDL(ydl_params) as ydl:
                 return ydl.extract_info(url, download=True)
         info = await asyncio.to_thread(_ex)
-        if not info: return [], {}
-        if 'entries' in info: info = info['entries'][0]
+        if not info:
+            raise Exception("No info extracted")
+        if 'entries' in info:
+            info = info['entries'][0]
         
         ext = "mp3" if mode == "audio" else "mp4"
         for f in os.listdir(download_dir):
             if info.get('id', 'none') in f and f.endswith(ext):
                 return [os.path.join(download_dir, f)], info
         return [], {}
+        
     except Exception as e:
-        # Если yt-dlp подвёл, пробуем API еще раз
+        logging.error(f"yt-dlp error: {e}")
         link, author, title = await fetch_api_bypass(url, mode)
-        if link: return [link], {"uploader": author, "title": title}
-        logging.error(f"Final DL error: {e}")
+        if link:
+            return [link], {"uploader": author or "Unknown", "title": title or "Media"}
+        logging.error(f"Final DL error (cobalt also failed): {e}")
         return [], {}
 
 # --- [ ХЕНДЛЕРЫ ] ---
@@ -327,19 +324,24 @@ async def process_download(callback: CallbackQuery):
                     res = await bot.send_video(user_id, video=FSInputFile(target), caption=cap, reply_markup=InlineKeyboardMarkup(inline_keyboard=ad_kb))
                 else:
                     res = await bot.send_audio(user_id, audio=FSInputFile(target), caption=cap, reply_markup=InlineKeyboardMarkup(inline_keyboard=ad_kb))
-                if os.path.exists(target): os.remove(target)
+                if os.path.exists(target):
+                    os.remove(target)
 
             f_id = None
-            if mode == "video" and res.video: f_id = res.video.file_id
-            elif mode == "audio" and res.audio: f_id = res.audio.file_id
+            if mode == "video" and getattr(res, "video", None):
+                f_id = res.video.file_id
+            elif mode == "audio" and getattr(res, "audio", None):
+                f_id = res.audio.file_id
             
-            if f_id: save_to_cache(url, f_id, mode)
+            if f_id:
+                save_to_cache(url, f_id, mode)
             
             log_service_stat(url)
             increment_downloads(user_id)
             await load_msg.delete()
             
     except Exception as e:
+        logging.error(f"Send error: {e}")
         await load_msg.edit_text(f"❌ Произошла ошибка при отправке.")
 
 # --- [ АДМИН-ПАНЕЛЬ ] ---
