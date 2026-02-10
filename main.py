@@ -151,34 +151,40 @@ async def is_subscribed(user_id: int) -> bool:
 async def fetch_api_bypass(url: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
     api_url = "https://api.cobalt.tools/api/json"
     headers = {"Accept": "application/json", "Content-Type": "application/json"}
-    payload = {"url": url, "vCodec": "h264"}
+    # Настройка Cobalt для разных типов контента
+    payload = {
+        "url": url, 
+        "vCodec": "h264",
+        "videoQuality": "720",
+        "isAudioOnly": False
+    }
     async with aiohttp.ClientSession() as session:
         try:
-            async with session.post(api_url, json=payload, headers=headers, timeout=15) as resp:
+            async with session.post(api_url, json=payload, headers=headers, timeout=20) as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    return data.get("url"), "Social Media", data.get("filename", "Video")
+                    # Если API вернуло статус "stream" или "video", берем ссылку
+                    return data.get("url"), "Social Media", data.get("filename", "Media")
         except: pass
     return None, None, None
 
 async def download_media(url: str, mode: str, user_id: int) -> Tuple[List[str], Dict[str, Any]]:
     low_url = url.lower()
     
-    # 1. ПРИНУДИТЕЛЬНЫЙ ОБХОД ДЛЯ СЛОЖНЫХ СЕРВИСОВ
+    # --- [ УЛЬТИМАТИВНЫЙ ФИКС ] ---
+    # Для YouTube, Pinterest и Instagram используем ТОЛЬКО обходной API
+    # так как серверные IP Render заблокированы сервисами напрямую.
     if any(x in low_url for x in ["youtube.com", "youtu.be", "instagram.com", "pinterest.com", "pin.it"]):
         link, author, title = await fetch_api_bypass(url)
-        if link: return [link], {"uploader": author, "title": title}
+        if link: 
+            return [link], {"uploader": author, "title": title}
+        else:
+            logging.error(f"Cobalt API could not process: {url}")
 
-    # 2. СТАНДАРТНАЯ ЗАГРУЗКА (ДЛЯ TIKTOK/VK И ДРУГИХ)
+    # Для TikTok, VK и других используем стандартный yt-dlp
     download_dir = str(BASE_DIR / "downloads")
     os.makedirs(download_dir, exist_ok=True)
     
-    # Исправление для Pinterest: используем 'best', если yt-dlp все же вызывается
-    if "pinterest" in low_url or "pin.it" in low_url:
-        target_format = "best"
-    else:
-        target_format = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
-
     ydl_params = {
         'quiet': True,
         'no_warnings': True,
@@ -186,7 +192,7 @@ async def download_media(url: str, mode: str, user_id: int) -> Tuple[List[str], 
         'proxy': PROXY,
         'outtmpl': f"{download_dir}/%(id)s.%(ext)s",
         'ffmpeg_location': FFMPEG_EXE,
-        'format': target_format if mode == "video" else "bestaudio/best",
+        'format': "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" if mode == "video" else "bestaudio/best",
         'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
     }
     
@@ -207,15 +213,14 @@ async def download_media(url: str, mode: str, user_id: int) -> Tuple[List[str], 
         
         ext = "mp3" if mode == "audio" else "mp4"
         for f in os.listdir(download_dir):
-            if info.get('id', 'none') in f and (f.endswith(ext) or mode == "video"):
+            if info.get('id', 'none') in f and f.endswith(ext):
                 return [os.path.join(download_dir, f)], info
         return [], {}
     except Exception as e:
-        # Если yt-dlp упал на YouTube, пробуем Bypass еще раз как последний шанс
-        if "youtube" in low_url:
-             link, author, title = await fetch_api_bypass(url)
-             if link: return [link], {"uploader": author, "title": title}
-        logging.error(f"Download error: {e}")
+        logging.error(f"Standard DL error: {e}")
+        # Если даже тут упало, последний шанс — еще раз API
+        link, author, title = await fetch_api_bypass(url)
+        if link: return [link], {"uploader": author, "title": title}
         return [], {}
 
 # --- [ ХЕНДЛЕРЫ ] ---
