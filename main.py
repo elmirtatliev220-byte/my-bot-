@@ -54,7 +54,7 @@ TOKEN = RAW_TOKEN.strip() if RAW_TOKEN else ""
 PROXY = os.getenv("PROXY_URL", None) 
 
 # Для Webhook на Render
-RENDER_URL = os.getenv("RENDER_EXTERNAL_URL") # Например https://bot.onrender.com
+RENDER_URL = os.getenv("https://my-bot-zxps.onrender.com") # Например https://bot.onrender.com
 WEBHOOK_PATH = f"/webhook/{TOKEN}"
 WEBHOOK_URL = f"{RENDER_URL}{WEBHOOK_PATH}"
 
