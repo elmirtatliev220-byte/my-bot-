@@ -126,26 +126,34 @@ async def is_subscribed(user_id: int) -> bool:
 # --- [ СИСТЕМА ЗАГРУЗКИ ] ---
 
 async def fetch_api_bypass(url: str, mode: str = "video") -> Tuple[Optional[str], Optional[str], Optional[str]]:
-    apis = ["https://api.cobalt.tools/api/json"]
-    headers = {"Accept": "application/json", "Content-Type": "application/json"}
+    # Используем проверенный API Cobalt
+    api = "https://api.cobalt.tools/api/json"
+    headers = {
+        "Accept": "application/json", 
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
+    }
     payload = {"url": url, "vCodec": "h264", "isAudioOnly": mode == "audio"}
     
-    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
-        for api in apis:
-            try:
-                async with session.post(api, json=payload, headers=headers) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        res_url = data.get("url")
-                        return res_url, data.get("author"), data.get("filename")
-            except: continue
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as session:
+        try:
+            async with session.post(api, json=payload, headers=headers) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    return data.get("url"), data.get("author"), data.get("filename")
+                else:
+                    logger.error(f"API Error: {resp.status}")
+        except Exception as e:
+            logger.error(f"API Request failed: {e}")
     return None, None, None
 
 async def download_media(url: str, mode: str) -> Tuple[List[str], Dict[str, Any]]:
-    if any(x in url.lower() for x in ["instagram.com", "instagr.am", "pin.it", "pinterest.com"]):
+    # Для Pinterest и Instagram сначала пробуем быстрый API, так как yt-dlp часто банят
+    if any(x in url.lower() for x in ["pin.it", "pinterest.com", "instagram.com", "instagr.am"]):
         link, author, title = await fetch_api_bypass(url, mode)
         if link: return [link], {"uploader": author, "title": title}
 
+    # Резервный метод через yt-dlp
     download_dir = BASE_DIR / "downloads"
     if download_dir.exists():
         try: shutil.rmtree(download_dir)
@@ -153,10 +161,12 @@ async def download_media(url: str, mode: str) -> Tuple[List[str], Dict[str, Any]
     download_dir.mkdir(exist_ok=True)
     
     ydl_params: Dict[str, Any] = {
-        'quiet': True, 'noplaylist': True,
+        'quiet': True, 
+        'noplaylist': True,
         'outtmpl': str(download_dir / "%(id)s.%(ext)s"),
         'ffmpeg_location': FFMPEG_EXE,
         'socket_timeout': 30,
+        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
     }
 
     if mode == "audio":
@@ -172,7 +182,8 @@ async def download_media(url: str, mode: str) -> Tuple[List[str], Dict[str, Any]
         if not info: return [], {}
         files = [str(download_dir / f) for f in os.listdir(download_dir) if not f.endswith(".part")]
         return files, dict(info)
-    except:
+    except Exception as e:
+        logger.warning(f"yt-dlp failed: {e}. Trying final API fallback.")
         link, author, title = await fetch_api_bypass(url, mode)
         if link: return [link], {"uploader": author, "title": title}
     return [], {}
@@ -192,29 +203,13 @@ async def start_cmd(message: Message, command: CommandObject):
                         (user_id, message.from_user.username or f"id_{user_id}", datetime.now().isoformat(), referrer))
             conn.commit()
         
-        text = f"<b>✨ Привет! Я {BOT_USERNAME}</b>\n\nЗагружаю медиа из <b>Instagram, TikTok, YouTube, Pinterest и VK</b>.\n━━━━━━━━━━━━━━━━━━━━\n🚀 <b>Просто пришли ссылку!</b>"
+        text = f"<b>✨ Привет! Я {BOT_USERNAME}</b>\n\nЗагружаю медиа из <b>Instagram, TikTok, Pinterest и VK</b>.\n━━━━━━━━━━━━━━━━━━━━\n🚀 <b>Просто пришли ссылку!</b>"
         kb = [[InlineKeyboardButton(text="👤 Мой профиль", callback_data="my_profile")],
               [InlineKeyboardButton(text="🆘 Поддержка", callback_data="get_support")]]
         if user_id == ADMIN_ID: kb.insert(0, [InlineKeyboardButton(text="🛠 Админ-панель", callback_data="admin_main")])
         await message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
     except Exception as e:
         logger.error(f"Start error: {e}")
-
-@dp.callback_query(F.data == "my_profile")
-async def profile_handler(callback: CallbackQuery):
-    if not callback.message or not isinstance(callback.message, Message): return
-    try:
-        user_id = callback.from_user.id
-        with get_db() as conn:
-            res = conn.execute("SELECT downloads_count FROM users WHERE user_id = ?", (user_id,)).fetchone()
-            ref_count = conn.execute("SELECT COUNT(*) FROM users WHERE referred_by = ?", (user_id,)).fetchone()[0]
-        
-        sub = "✅ Активна" if await is_subscribed(user_id) else "❌ Не оформлена"
-        text = (f"<b>👤 Ваш профиль</b>\n\n📊 Скачано: <b>{res[0] if res else 0}</b>\n👥 Рефералы: <b>{ref_count}</b>\n"
-                f"💎 Подписка: <b>{sub}</b>\n\n🔗 Ссылка:\n<code>https://t.me/{BOT_USERNAME}?start={user_id}</code>")
-        await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="back_start")]]))
-    except Exception as e:
-        await callback.answer("Ошибка профиля")
 
 @dp.message(F.text.startswith("http"))
 async def handle_url(message: Message):
@@ -269,13 +264,12 @@ async def process_download(callback: CallbackQuery):
         async with ChatActionSender(bot=bot, chat_id=user_id, action="upload_video" if mode == "video" else "upload_voice"):
             paths, info = await download_media(url, mode)
             if not paths:
-                if isinstance(load_msg, Message): await load_msg.edit_text("❌ Не удалось скачать.")
+                await load_msg.edit_text("❌ Извините, не удалось получить видео. Попробуйте другую ссылку.")
                 return
 
             cap = f"<b>{info.get('title', 'Media')[:45]}</b>\n\n📥 @{BOT_USERNAME}"
             target = paths[0]
             
-            sent = None
             if target.startswith("http"):
                 sent = await (bot.send_video(user_id, video=target, caption=cap) if mode == "video" else bot.send_audio(user_id, audio=target, caption=cap))
             else:
@@ -285,10 +279,7 @@ async def process_download(callback: CallbackQuery):
                     except: pass
 
             if sent:
-                f_id = None
-                if mode == "video" and sent.video: f_id = sent.video.file_id
-                elif mode == "audio" and sent.audio: f_id = sent.audio.file_id
-                
+                f_id = sent.video.file_id if (mode == "video" and sent.video) else (sent.audio.file_id if sent.audio else None)
                 if f_id:
                     with get_db() as conn:
                         conn.execute("INSERT OR IGNORE INTO media_cache (url_hash, file_id, mode) VALUES (?, ?, ?)", (url_hash, f_id, mode))
@@ -297,90 +288,55 @@ async def process_download(callback: CallbackQuery):
 
             await bot.send_sticker(user_id, SUCCESS_STICKER)
             log_service_stat(url)
-            if isinstance(load_msg, Message): 
-                try: await load_msg.delete()
-                except: pass
+            await load_msg.delete()
     except Exception as e:
-        logger.error(f"Download process error: {e}")
-        if isinstance(load_msg, Message): 
-            try: await load_msg.edit_text("❌ Ошибка при отправке файла.")
-            except: pass
+        logger.error(f"Final Send error: {e}")
+        await load_msg.edit_text("❌ Ошибка при отправке. Файл может быть слишком большим.")
 
-# --- [ АДМИНКА И ПРОЧЕЕ ] ---
-@dp.callback_query(F.data == "admin_main")
-async def admin_panel(callback: CallbackQuery):
-    if callback.from_user.id != ADMIN_ID or not callback.message or not isinstance(callback.message, Message): return
-    with get_db() as conn: u_count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
-    text = f"🛠 <b>Админка</b>\nЮзеров: {u_count}\n\n{get_service_stats()}"
-    kb = [[InlineKeyboardButton(text="📢 Рассылка", callback_data="admin_broadcast")], [InlineKeyboardButton(text="❌ Закрыть", callback_data="close_admin")]]
-    await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
+# --- [ СИСТЕМНЫЕ ФУНКЦИИ ] ---
 
-@dp.callback_query(F.data == "check_sub")
-async def ch_sb(c: CallbackQuery):
-    if not c.message: return
-    if await is_subscribed(c.from_user.id):
-        await c.message.answer("✅ Подписка подтверждена!")
-        try: await c.message.delete()
-        except: pass
-    else: await c.answer("❌ Вы не подписаны!", show_alert=True)
+@dp.callback_query(F.data == "my_profile")
+async def profile_handler(callback: CallbackQuery):
+    if not callback.message or not isinstance(callback.message, Message): return
+    user_id = callback.from_user.id
+    with get_db() as conn:
+        res = conn.execute("SELECT downloads_count FROM users WHERE user_id = ?", (user_id,)).fetchone()
+        ref_count = conn.execute("SELECT COUNT(*) FROM users WHERE referred_by = ?", (user_id,)).fetchone()[0]
+    sub = "✅ Активна" if await is_subscribed(user_id) else "❌ Не оформлена"
+    text = (f"<b>👤 Ваш профиль</b>\n\n📊 Скачано: <b>{res[0] if res else 0}</b>\n👥 Рефералы: <b>{ref_count}</b>\n"
+            f"💎 Подписка: <b>{sub}</b>\n\n🔗 Ссылка:\n<code>https://t.me/{BOT_USERNAME}?start={user_id}</code>")
+    await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="back_start")]]))
 
 @dp.callback_query(F.data == "back_start")
 async def back_st(c: CallbackQuery):
     if not c.message or not isinstance(c.message, Message): return
     await start_cmd(c.message, CommandObject(command="start", args=None))
-    try: await c.message.delete()
-    except: pass
-
-@dp.callback_query(F.data == "get_support")
-async def support_handler(callback: CallbackQuery):
-    if not callback.message: return
-    await callback.message.answer(f"🛠 Поддержка: @{SUPPORT_USER}")
-
-# --- [ СЕРВЕР И ПЕРЕЗАПУСК ] ---
-
-async def stay_awake():
-    while True:
-        await asyncio.sleep(600)
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(RENDER_URL): pass
-        except: pass
+    await c.message.delete()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Авто-починка при старте
     init_db()
-    try:
-        await bot.delete_webhook(drop_pending_updates=True)
-        await bot.set_webhook(url=WEBHOOK_URL, allowed_updates=dp.resolve_used_update_types())
-        logger.info("Webhook set successfully")
-    except Exception as e:
-        logger.error(f"Lifespan error: {e}")
-    
-    asyncio.create_task(stay_awake())
+    await bot.delete_webhook(drop_pending_updates=True)
+    await bot.set_webhook(url=WEBHOOK_URL, allowed_updates=dp.resolve_used_update_types())
     yield
 
 app = FastAPI(lifespan=lifespan)
 
 @app.post(WEBHOOK_PATH)
 async def bot_webhook(request: Request):
-    try:
-        data = await request.json()
-        update = Update.model_validate(data, context={"bot": bot})
-        await dp.feed_update(bot, update)
-    except Exception as e:
-        logger.error(f"Webhook processing error: {e}")
+    data = await request.json()
+    update = Update.model_validate(data, context={"bot": bot})
+    await dp.feed_update(bot, update)
     return {"ok": True}
 
 @app.get("/")
-async def health(): return {"status": "ok", "time": datetime.now().isoformat()}
+async def health(): return {"status": "ok"}
 
 if __name__ == "__main__":
-    # Команда запуска сервера с авто-перезагрузкой при фатальных ошибках
     while True:
         try:
             uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
         except Exception as e:
-            logger.critical(f"Server crashed: {e}. Restarting in 5 seconds...")
+            logger.critical(f"Server crash: {e}")
             import time
             time.sleep(5)
