@@ -10,7 +10,6 @@ import logging
 from datetime import datetime
 from pathlib import Path
 from typing import List, Tuple, Any, Dict, Optional, Union
-from contextlib import asynccontextmanager
 
 # Для Webhook сервера
 from fastapi import FastAPI, Request
@@ -18,10 +17,6 @@ import uvicorn
 
 import static_ffmpeg
 from dotenv import load_dotenv
-
-# Настройка логирования для Render
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 # Настройка FFmpeg
 try:
@@ -46,14 +41,14 @@ from aiogram.utils.chat_action import ChatActionSender
 import yt_dlp
 
 # --- [ КОНФИГУРАЦИЯ ] ---
-ADMIN_ID = 391491090         
-SUPPORT_USER = "твой_ник"   
+ADMIN_ID = 391491090          
+SUPPORT_USER = "твой_ник"    
 CHANNEL_ID = "@Bns_888" 
 CHANNEL_URL = "https://t.me/Bns_888" 
 FREE_LIMIT = 3 
 
-# ID анимированного стикера успеха (Проверенный стандартный)
-SUCCESS_STICKER = "CAACAgIAAxkBAAEL6_Zl9_2_S9_S9_S9_S9_S9_S9_S9"
+# ID анимированного стикера успеха (из твоего предыдущего запроса)
+SUCCESS_STICKER = "CAACAgIAAxkBAAEL6_Zl9_2_"
 
 BASE_DIR = Path(__file__).parent
 TOKEN = os.getenv("BOT_TOKEN", "").strip()
@@ -77,18 +72,11 @@ def get_db():
 
 def init_db():
     with get_db() as conn:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                user_id INTEGER PRIMARY KEY, 
-                username TEXT, 
-                joined TEXT, 
-                downloads_count INTEGER DEFAULT 0
-            )
-        """)
+        conn.execute("CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, username TEXT, joined TEXT, downloads_count INTEGER DEFAULT 0)")
         conn.execute("CREATE TABLE IF NOT EXISTS url_shorter (id TEXT PRIMARY KEY, url TEXT)")
         conn.execute("CREATE TABLE IF NOT EXISTS media_cache (url_hash TEXT PRIMARY KEY, file_id TEXT, mode TEXT, service TEXT)")
         conn.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)")
-        for s in ['tiktok', 'instagram', 'youtube', 'vk', 'pinterest', 'other']:
+        for s in ['tiktok', 'instagram', 'vk', 'pinterest', 'other']:
             conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, '0')", (f"stat_{s}",))
         conn.commit()
 
@@ -97,9 +85,8 @@ def log_service_stat(url: str):
     low_url = url.lower()
     if "tiktok.com" in low_url: service = "tiktok"
     elif "instagram.com" in low_url or "instagr.am" in low_url: service = "instagram"
-    elif "pinterest.com" in low_url or "pin.it" in low_url: service = "pinterest"
     elif any(x in low_url for x in ["vk.com", "vkvideo.ru", "vk.ru"]): service = "vk"
-    
+    elif "pinterest.com" in low_url or "pin.it" in low_url: service = "pinterest"
     with get_db() as conn:
         conn.execute("UPDATE settings SET value = CAST(value AS INTEGER) + 1 WHERE key = ?", (f"stat_{service}",))
         conn.commit()
@@ -127,8 +114,8 @@ async def fetch_api_bypass(url: str, mode: str = "video") -> Tuple[Optional[str]
     api_url = "https://api.cobalt.tools/api/json"
     headers = {"Accept": "application/json", "Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
     payload = {"url": url, "vCodec": "h264", "isAudioOnly": mode == "audio", "isNoWatermark": True}
-    
-    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=25)) as session:
+    timeout = aiohttp.ClientTimeout(total=15)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
         try:
             async with session.post(api_url, json=payload, headers=headers) as resp:
                 if resp.status == 200:
@@ -139,7 +126,8 @@ async def fetch_api_bypass(url: str, mode: str = "video") -> Tuple[Optional[str]
     return None, None, None
 
 async def download_media(url: str, mode: str) -> Tuple[List[str], Dict[str, Any]]:
-    if any(x in url.lower() for x in ["pinterest.com", "pin.it", "instagram.com", "instagr.am"]):
+    # Instagram, Stories и Reels — приоритет через API
+    if any(x in url.lower() for x in ["instagram.com", "instagr.am", "/reel/"]):
         link, author, title = await fetch_api_bypass(url, mode)
         if link: return [link], {"uploader": author, "title": title}
 
@@ -154,14 +142,6 @@ async def download_media(url: str, mode: str) -> Tuple[List[str], Dict[str, Any]
         'format': "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
     }
     
-    if mode == "audio":
-        ydl_params['format'] = 'bestaudio/best'
-        ydl_params['postprocessors'] = [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': '192',
-        }]
-
     try:
         def _ex():
             with yt_dlp.YoutubeDL(ydl_params) as ydl: return ydl.extract_info(url, download=True)
@@ -183,13 +163,8 @@ async def start_cmd(message: Message):
         conn.execute("INSERT OR IGNORE INTO users (user_id, username, joined) VALUES (?, ?, ?)", 
                     (message.from_user.id, message.from_user.username or f"id_{message.from_user.id}", datetime.now().isoformat()))
         conn.commit()
-    
-    text = (
-        f"👋 Привет! Я качаю видео и фото из:\n"
-        f"🔹 <b>TikTok</b>\n🔹 <b>Instagram</b>\n"
-        f"🔹 <b>Pinterest</b> (Видео, Фото, MP3)\n🔹 <b>VK Video</b>\n\n"
-        f"Просто пришли мне ссылку!"
-    )
+    # УБРАЛ YOUTUBE ИЗ ОПИСАНИЯ
+    text = f"👋 Привет! Я качаю видео из TikTok, VK, Insta и Pinterest.\nПросто кидай ссылку!"
     kb = [[InlineKeyboardButton(text="🆘 Поддержка", callback_data="get_support")]]
     if message.from_user.id == ADMIN_ID:
         kb.insert(0, [InlineKeyboardButton(text="🛠 Админ-панель", callback_data="admin_main")])
@@ -202,6 +177,7 @@ async def handle_url(message: Message):
     url = message.text.strip()
     url_hash = hashlib.md5(url.encode()).hexdigest()
 
+    # --- МГНОВЕННЫЙ КЭШ ---
     with get_db() as conn:
         cached = conn.execute("SELECT file_id, mode FROM media_cache WHERE url_hash = ?", (url_hash,)).fetchone()
         if cached:
@@ -210,22 +186,22 @@ async def handle_url(message: Message):
             else: await message.answer_audio(file_id, caption=f"📥 @{BOT_USERNAME}")
             return
 
+        # ЛИМИТЫ
         res = conn.execute("SELECT downloads_count FROM users WHERE user_id = ?", (user_id,)).fetchone()
         count = res[0] if res else 0
         if count >= FREE_LIMIT and not await is_subscribed(user_id):
-            text = "⚠️ <b>Лимит загрузок!</b>\n\nПодпишись на канал, чтобы качать без ограничений."
+            text = "⚠️ <b>Лимит бесплатных загрузок (3) исчерпан!</b>\n\nПодпишись на канал, чтобы качать без ограничений."
             kb = [[InlineKeyboardButton(text="💎 ПОДПИСАТЬСЯ", url=CHANNEL_URL)],
-                  [InlineKeyboardButton(text="🔄 ПРОВЕРИТЬ", callback_data="check_sub")]]
+                  [InlineKeyboardButton(text="🔄 ПРОВЕРИТЬ ПОДПИСКУ", callback_data="check_sub")]]
             return await message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
 
     v_id = hashlib.md5(url.encode()).hexdigest()[:10]
     with get_db() as conn:
         conn.execute("INSERT OR REPLACE INTO url_shorter VALUES (?, ?)", (v_id, url))
         conn.commit()
-    
-    kb = [[InlineKeyboardButton(text="🎬 Видео / Фото", callback_data=f"v_{v_id}"),
-            InlineKeyboardButton(text="🎵 MP3 Аудио", callback_data=f"a_{v_id}")]]
-    await message.answer("🎥 Что скачиваем?", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
+    kb = [[InlineKeyboardButton(text="🎬 Видео", callback_data=f"v_{v_id}"),
+            InlineKeyboardButton(text="🎵 Аудио", callback_data=f"a_{v_id}")]]
+    await message.answer("🎥 Куда загружаем?", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
 
 @dp.callback_query(F.data.regexp(r"^[va]_"))
 async def process_download(callback: CallbackQuery):
@@ -240,61 +216,52 @@ async def process_download(callback: CallbackQuery):
     url = row[0]
     url_hash = hashlib.md5(url.encode()).hexdigest()
 
-    load_msg = await callback.message.edit_text("⏳ Начинаю загрузку...")
+    load_msg = await callback.message.edit_text("⏳ Загружаю...")
     if not isinstance(load_msg, Message): return
 
     try:
         async with ChatActionSender(bot=bot, chat_id=user_id, action="upload_video"):
             paths, info = await download_media(url, mode)
             if not paths:
-                await load_msg.edit_text("❌ Не удалось получить медиа.")
+                await load_msg.edit_text("❌ Ошибка загрузки.")
                 return
 
             cap = f"<b>{info.get('title', 'Media')[:45]}</b>\n\n📥 @{BOT_USERNAME}"
             target = paths[0]
             sent_msg = None
 
-            is_image = any(target.lower().endswith(x) for x in ['.jpg', '.jpeg', '.png', '.webp'])
-
             if target.startswith("http"):
-                if is_image: sent_msg = await bot.send_photo(user_id, photo=target, caption=cap)
-                elif mode == "video": sent_msg = await bot.send_video(user_id, video=target, caption=cap)
+                if mode == "video": sent_msg = await bot.send_video(user_id, video=target, caption=cap)
                 else: sent_msg = await bot.send_audio(user_id, audio=target, caption=cap)
             else:
-                if is_image: sent_msg = await bot.send_photo(user_id, photo=FSInputFile(target), caption=cap)
-                elif mode == "video": sent_msg = await bot.send_video(user_id, video=FSInputFile(target), caption=cap)
+                if mode == "video": sent_msg = await bot.send_video(user_id, video=FSInputFile(target), caption=cap)
                 else: sent_msg = await bot.send_audio(user_id, audio=FSInputFile(target), caption=cap)
                 if os.path.exists(target): os.remove(target)
 
             if sent_msg:
-                f_id = None
-                if hasattr(sent_msg, 'video') and sent_msg.video: f_id = sent_msg.video.file_id
-                elif hasattr(sent_msg, 'audio') and sent_msg.audio: f_id = sent_msg.audio.file_id
-                elif hasattr(sent_msg, 'photo') and sent_msg.photo: f_id = sent_msg.photo[-1].file_id
+                # ОТПРАВЛЯЕМ СТИКЕР УСПЕХА
+                try:
+                    await bot.send_sticker(user_id, sticker=SUCCESS_STICKER)
+                except:
+                    pass
                 
+                f_id = sent_msg.video.file_id if mode=="video" and sent_msg.video else (sent_msg.audio.file_id if mode=="audio" and sent_msg.audio else None)
                 if f_id:
                     with get_db() as conn:
                         conn.execute("INSERT OR IGNORE INTO media_cache VALUES (?, ?, ?, ?)", (url_hash, f_id, mode, "service"))
                         conn.execute("UPDATE users SET downloads_count = downloads_count + 1 WHERE user_id = ?", (user_id,))
                         conn.commit()
-                
-                # Стикер успеха
-                try: await bot.send_sticker(user_id, sticker="CAACAgIAAxkBAAEL6_Zl9_2_")
-                except: pass
-
             log_service_stat(url)
             await load_msg.delete()
-    except Exception as e:
-        await load_msg.edit_text(f"❌ Ошибка: {str(e)[:50]}")
-
-# --- [ АДМИНКА ] ---
+    except Exception:
+        await load_msg.edit_text("❌ Ошибка при отправке.")
 
 @dp.callback_query(F.data == "admin_main")
 async def admin_panel(callback: CallbackQuery):
     if callback.from_user.id != ADMIN_ID or not callback.message: return
     with get_db() as conn:
         u_count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
-    text = f"🛠 <b>Админ-панель</b>\nЮзеров: {u_count}\n\n{get_service_stats()}"
+    text = f"🛠 <b>Админка</b>\nЮзеров: {u_count}\n\n{get_service_stats()}"
     kb = [[InlineKeyboardButton(text="📢 Рассылка", callback_data="admin_broadcast")],
           [InlineKeyboardButton(text="❌ Закрыть", callback_data="close_admin")]]
     await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
@@ -302,7 +269,7 @@ async def admin_panel(callback: CallbackQuery):
 @dp.callback_query(F.data == "admin_broadcast")
 async def broadcast_start(c: CallbackQuery, state: FSMContext):
     await state.set_state(AdminStates.waiting_for_broadcast_msg)
-    await c.message.answer("Введите сообщение для рассылки:")
+    await c.message.answer("Введите текст для рассылки:")
 
 @dp.message(AdminStates.waiting_for_broadcast_msg)
 async def broadcast_execute(m: Message, state: FSMContext):
@@ -311,16 +278,22 @@ async def broadcast_execute(m: Message, state: FSMContext):
     for u in users:
         try: await m.copy_to(u[0]); count += 1
         except: continue
-    await m.answer(f"✅ Готово! Получили: {count} чел."); await state.clear()
+    await m.answer(f"✅ Отправлено {count} юзерам."); await state.clear()
 
 @dp.callback_query(F.data == "check_sub")
 async def ch_sb(c: CallbackQuery):
     if not c.message: return
     if await is_subscribed(c.from_user.id):
-        await c.message.answer("✅ Подписка подтверждена!")
+        await c.message.answer("✅ Подписка подтверждена! Теперь пришли ссылку заново.")
     else: await c.answer("❌ Ты еще не подписан!", show_alert=True)
 
-# --- [ LIFESPAN & FASTAPI ] ---
+@dp.callback_query(F.data == "get_support")
+async def support_handler(callback: CallbackQuery):
+    await callback.message.answer(f"🛠 Поддержка: @{SUPPORT_USER}")
+
+@dp.callback_query(F.data == "close_admin")
+async def close_admin_handler(callback: CallbackQuery):
+    if callback.message: await callback.message.delete()
 
 async def stay_awake():
     while True:
@@ -330,17 +303,12 @@ async def stay_awake():
                 async with session.get(RENDER_URL): pass
         except: pass
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
+app = FastAPI()
+@app.on_event("startup")
+async def on_startup():
     init_db()
-    # Логируем установку вебхука для отладки на Render
-    print(f"--- SETTING WEBHOOK TO: {WEBHOOK_URL} ---")
     await bot.set_webhook(url=WEBHOOK_URL, drop_pending_updates=True)
     asyncio.create_task(stay_awake())
-    yield
-    await bot.delete_webhook()
-
-app = FastAPI(lifespan=lifespan)
 
 @app.post(WEBHOOK_PATH)
 async def bot_webhook(request: Request):
