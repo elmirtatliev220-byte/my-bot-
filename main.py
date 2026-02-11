@@ -10,6 +10,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 from typing import List, Tuple, Any, Dict, Optional, Union
+from contextlib import asynccontextmanager
 
 # Для Webhook сервера
 from fastapi import FastAPI, Request
@@ -46,6 +47,8 @@ SUPPORT_USER = "твой_ник"
 CHANNEL_ID = "@Bns_888" 
 CHANNEL_URL = "https://t.me/Bns_888" 
 FREE_LIMIT = 3 
+# ID анимированного стикера "Успех"
+SUCCESS_STICKER = "CAACAgIAAxkBAAEL6_Zl9_2_S9_S9_S9_S9_S9_S9_S9" 
 
 BASE_DIR = Path(__file__).parent
 TOKEN = os.getenv("BOT_TOKEN", "").strip()
@@ -121,7 +124,7 @@ async def fetch_api_bypass(url: str, mode: str = "video") -> Tuple[Optional[str]
     headers = {"Accept": "application/json", "Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
     payload = {"url": url, "vCodec": "h264", "isAudioOnly": mode == "audio", "isNoWatermark": True}
     
-    timeout = aiohttp.ClientTimeout(total=15)
+    timeout = aiohttp.ClientTimeout(total=20)
     async with aiohttp.ClientSession(timeout=timeout) as session:
         try:
             async with session.post(api_url, json=payload, headers=headers) as resp:
@@ -262,6 +265,10 @@ async def process_download(callback: CallbackQuery):
                         conn.execute("INSERT OR IGNORE INTO media_cache VALUES (?, ?, ?, ?)", (url_hash, f_id, mode, "service"))
                         conn.execute("UPDATE users SET downloads_count = downloads_count + 1 WHERE user_id = ?", (user_id,))
                         conn.commit()
+                
+                # ОТПРАВКА СТИКЕРА УСПЕХА (ID анимированного стикера)
+                try: await bot.send_sticker(user_id, sticker="CAACAgIAAxkBAAEL6_Zl9_2_S9_S9_S9_S9_S9_S9_S9")
+                except: pass
 
             log_service_stat(url)
             await load_msg.delete()
@@ -319,13 +326,15 @@ async def stay_awake():
                 async with session.get(RENDER_URL): pass
         except: pass
 
-app = FastAPI()
-
-@app.on_event("startup")
-async def on_startup():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     init_db()
     await bot.set_webhook(url=WEBHOOK_URL, drop_pending_updates=True)
     asyncio.create_task(stay_awake())
+    yield
+    await bot.delete_webhook()
+
+app = FastAPI(lifespan=lifespan)
 
 @app.post(WEBHOOK_PATH)
 async def bot_webhook(request: Request):
