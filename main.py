@@ -80,12 +80,10 @@ BOT_USERNAME: str = "Limiktikbot"
 # --- [ БАЗА ДАННЫХ ] ---
 
 def get_db():
-    # Используем один файл database.db для всех данных
     return sqlite3.connect(str(BASE_DIR / "database.db"), check_same_thread=False)
 
 def init_db():
     with get_db() as conn:
-        # Создаем таблицу пользователей, если её нет
         conn.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 user_id INTEGER PRIMARY KEY, 
@@ -97,15 +95,10 @@ def init_db():
         conn.execute("CREATE TABLE IF NOT EXISTS url_shorter (id TEXT PRIMARY KEY, url TEXT)")
         conn.execute("CREATE TABLE IF NOT EXISTS media_cache (url_hash TEXT PRIMARY KEY, file_id TEXT, mode TEXT, service TEXT)")
         conn.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)")
-        
-        # Инициализация настроек рекламы
         conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('ad_text', '💎 Заработать тут')")
         conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('ad_url', 'https://t.me/Bns_888')")
-        
-        # Инициализация счетчиков статистики, чтобы они не были пустыми
         for s in ['tiktok', 'instagram', 'youtube', 'vk', 'pinterest', 'other']:
             conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, '0')", (f"stat_{s}",))
-            
         conn.commit()
 
 def log_service_stat(url: str):
@@ -157,7 +150,11 @@ async def is_subscribed(user_id: int) -> bool:
 
 async def fetch_api_bypass(url: str, mode: str = "video") -> Tuple[Optional[str], Optional[Optional[str]], Optional[str]]:
     api_url = "https://api.cobalt.tools/api/json"
-    headers = {"Accept": "application/json", "Content-Type": "application/json"}
+    headers = {
+        "Accept": "application/json", 
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+    }
     payload = {
         "url": url, 
         "vCodec": "h264",
@@ -166,7 +163,7 @@ async def fetch_api_bypass(url: str, mode: str = "video") -> Tuple[Optional[str]
     }
     async with aiohttp.ClientSession() as session:
         try:
-            async with session.post(api_url, json=payload, headers=headers, timeout=30) as resp:
+            async with session.post(api_url, json=payload, headers=headers, timeout=20) as resp:
                 if resp.status == 200:
                     data = await resp.json()
                     if "url" in data:
@@ -178,25 +175,23 @@ async def fetch_api_bypass(url: str, mode: str = "video") -> Tuple[Optional[str]
 
 async def download_media(url: str, mode: str, user_id: int) -> Tuple[List[str], Dict[str, Any]]:
     low_url = url.lower()
-    download_dir = str(BASE_DIR / "downloads")
-    if os.path.exists(download_dir): shutil.rmtree(download_dir)
-    os.makedirs(download_dir, exist_ok=True)
+    download_dir = BASE_DIR / "downloads"
+    
+    # Очистка и создание папки
+    if download_dir.exists(): shutil.rmtree(download_dir)
+    download_dir.mkdir(exist_ok=True)
     
     ydl_params = {
         'quiet': True,
         'no_warnings': True,
         'noplaylist': True,
         'proxy': PROXY,
-        'outtmpl': f"{download_dir}/%(id)s.%(ext)s",
+        'outtmpl': str(download_dir / "%(id)s.%(ext)s"),
         'ffmpeg_location': FFMPEG_EXE,
         'format': "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" if mode == "video" else "bestaudio/best",
         'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
     }
 
-    if "pinterest" in low_url or "pin.it" in low_url:
-        ydl_params['referer'] = 'https://www.pinterest.com/'
-        ydl_params['format'] = 'bestvideo+bestaudio/best'
-    
     if mode == "audio":
         ydl_params['postprocessors'] = [{
             'key': 'FFmpegExtractAudio',
@@ -209,19 +204,25 @@ async def download_media(url: str, mode: str, user_id: int) -> Tuple[List[str], 
             with yt_dlp.YoutubeDL(ydl_params) as ydl:
                 return ydl.extract_info(url, download=True)
         info = await asyncio.to_thread(_ex)
-        if not info: raise Exception("No info")
+        if not info: raise Exception("No info from yt-dlp")
         if 'entries' in info: info = info['entries'][0]
         
         ext = "mp3" if mode == "audio" else "mp4"
+        found_files = []
         for f in os.listdir(download_dir):
-            file_path = os.path.join(download_dir, f)
-            if f.endswith(ext) or f.endswith(".webp") or f.endswith(".mkv"):
-                return [file_path], info
-        return [], {}
+            if f.endswith(ext) or f.endswith(".webp") or f.endswith(".mkv") or f.endswith(".webm"):
+                found_files.append(str(download_dir / f))
+        
+        if found_files:
+            return found_files, info
+        raise Exception("File not found after download")
+        
     except Exception as e:
         logging.error(f"yt-dlp error: {e}")
+        # Запасной вариант через API
         link, author, title = await fetch_api_bypass(url, mode)
-        if link: return [link], {"uploader": author or "Unknown", "title": title or "Media"}
+        if link: 
+            return [link], {"uploader": author or "Unknown", "title": title or "Media"}
         return [], {}
 
 # --- [ ХЕНДЛЕРЫ ] ---
@@ -258,17 +259,14 @@ async def handle_url(message: Message):
     with get_db() as conn:
         res = conn.execute("SELECT downloads_count FROM users WHERE user_id = ?", (user_id,)).fetchone()
         count = res[0] if res else 0
-        
-        # ЛОГИКА ЛИМИТА: Если скачиваний больше или равно 3, проверяем подписку
-        if count >= FREE_LIMIT:
-            if not await is_subscribed(user_id):
-                kb = [[InlineKeyboardButton(text="✅ Подписаться", url=CHANNEL_URL)],
-                      [InlineKeyboardButton(text="🔄 Проверить подписку", callback_data="check_sub")]]
-                return await message.answer(
-                    f"⚠️ <b>Лимит исчерпан!</b>\n\nВы уже скачали {FREE_LIMIT} видео. "
-                    "Чтобы продолжить скачивать без ограничений, подпишитесь на наш канал:", 
-                    reply_markup=InlineKeyboardMarkup(inline_keyboard=kb)
-                )
+        if count >= FREE_LIMIT and not await is_subscribed(user_id):
+            kb = [[InlineKeyboardButton(text="✅ Подписаться", url=CHANNEL_URL)],
+                  [InlineKeyboardButton(text="🔄 Проверить подписку", callback_data="check_sub")]]
+            return await message.answer(
+                f"⚠️ <b>Лимит исчерпан!</b>\n\nВы уже скачали {FREE_LIMIT} видео. "
+                "Чтобы продолжить, подпишитесь на канал:", 
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=kb)
+            )
 
     v_id = hashlib.md5(message.text.encode()).hexdigest()[:10]
     with get_db() as conn:
@@ -284,12 +282,6 @@ async def process_download(callback: CallbackQuery):
     if not callback.from_user or not callback.message or not callback.data: return
     user_id = callback.from_user.id
     
-    with get_db() as conn:
-        res = conn.execute("SELECT downloads_count FROM users WHERE user_id = ?", (user_id,)).fetchone()
-        count = res[0] if res else 0
-        if count >= FREE_LIMIT and not await is_subscribed(user_id):
-            return await callback.answer("❌ Сначала подпишитесь на канал!", show_alert=True)
-
     prefix, v_id = callback.data.split("_")
     mode = "video" if prefix == "v" else "audio"
     
@@ -315,16 +307,16 @@ async def process_download(callback: CallbackQuery):
             return
         except: pass
 
-    load_msg = await callback.message.edit_text("⏳ Начинаю загрузку, подождите...")
+    load_msg = await callback.message.edit_text("⏳ Загружаю... Пожалуйста, подождите")
     
     try:
         async with ChatActionSender(bot=bot, chat_id=user_id, action="upload_video" if mode=="video" else "upload_voice"):
             paths, info = await download_media(url, mode, user_id)
             if not paths:
-                await load_msg.edit_text("❌ Ошибка загрузки. Ссылка не поддерживается.")
+                await load_msg.edit_text("❌ Ошибка загрузки. Ссылка не поддерживается или сервис временно недоступен.")
                 return
 
-            cap = f"📝 {info.get('title', 'Без названия')}\n👤 {info.get('uploader', 'Автор неизвестен')}\n\n📥 @{BOT_USERNAME}"
+            cap = f"📝 {info.get('title', 'Media')}\n👤 {info.get('uploader', 'Uploader')}\n\n📥 @{BOT_USERNAME}"
             target = paths[0]
             
             if target.startswith("http"):
@@ -349,7 +341,8 @@ async def process_download(callback: CallbackQuery):
             await load_msg.delete()
             
     except Exception as e:
-        await load_msg.edit_text(f"❌ Ошибка: {str(e)}")
+        logging.error(f"Final error: {e}")
+        await load_msg.edit_text(f"❌ Произошла ошибка при отправке файла.")
 
 # --- [ АДМИН-ПАНЕЛЬ ] ---
 
@@ -358,7 +351,6 @@ async def admin_panel(callback: CallbackQuery):
     if not callback.from_user or callback.from_user.id != ADMIN_ID: return
     with get_db() as conn:
         u_count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
-    
     text = f"🛠 <b>Админ-панель</b>\n\nВсего пользователей: <b>{u_count}</b>\n\nСтатистика по сервисам:\n{get_service_stats()}"
     kb = [
         [InlineKeyboardButton(text="📢 Рассылка", callback_data="admin_broadcast")],
@@ -400,15 +392,15 @@ async def ad_save(m: Message, state: FSMContext):
             conn.execute("UPDATE settings SET value = ? WHERE key = 'ad_text'", (txt,))
             conn.execute("UPDATE settings SET value = ? WHERE key = 'ad_url'", (link,))
             conn.commit()
-        await m.answer("✅ Готово!"); await state.clear()
+        await m.answer("✅ Реклама обновлена!"); await state.clear()
     except: await m.answer("❌ Формат: Текст Ссылка")
 
 @dp.callback_query(F.data == "check_sub")
 async def ch_sb(c: CallbackQuery):
     if await is_subscribed(c.from_user.id):
-        await c.message.edit_text("✅ Спасибо за подписку! Теперь вы можете скачивать без ограничений. Просто пришлите ссылку снова.")
+        await c.message.edit_text("✅ Подписка подтверждена! Пришлите ссылку для скачивания.")
     else:
-        await c.answer("❌ Вы всё еще не подписаны на канал!", show_alert=True)
+        await c.answer("❌ Вы не подписаны!", show_alert=True)
 
 @dp.callback_query(F.data == "get_support")
 async def support_handler(callback: CallbackQuery):
@@ -418,19 +410,17 @@ async def support_handler(callback: CallbackQuery):
 async def close_admin_handler(callback: CallbackQuery):
     if callback.message: await callback.message.delete()
 
-# --- [ АНТИ-СОН МЕХАНИЗМ ДЛЯ RENDER ] ---
+# --- [ АНТИ-СОН МЕХАНИЗМ ] ---
 
 async def stay_awake():
-    """Фоновая задача, которая пингует сервер каждые 10 минут, чтобы он не засыпал."""
     while True:
-        await asyncio.sleep(600)  # Ждем 10 минут
+        await asyncio.sleep(600)
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(RENDER_URL) as resp:
                     if resp.status == 200:
-                        logging.info("Self-ping successful: Bot is awake.")
-        except Exception as e:
-            logging.error(f"Self-ping failed: {e}")
+                        logging.info("Stay awake: Ping OK")
+        except: pass
 
 # --- [ WEBHOOK СЕРВЕР ] ---
 app = FastAPI()
@@ -439,7 +429,6 @@ app = FastAPI()
 async def on_startup():
     init_db()
     await bot.set_webhook(url=WEBHOOK_URL, drop_pending_updates=True)
-    # Запускаем анти-сон при старте приложения
     asyncio.create_task(stay_awake())
 
 @app.post(WEBHOOK_PATH)
@@ -450,7 +439,7 @@ async def bot_webhook(request: Request):
 
 @app.get("/")
 async def health_check():
-    return {"status": "ok", "bot": BOT_USERNAME}
+    return {"status": "alive", "bot": BOT_USERNAME}
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
