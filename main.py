@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import List, Tuple, Any, Dict, Optional, Union
 from contextlib import asynccontextmanager
 
-# Для Webhook сервера
+# Библиотеки для сервера
 from fastapi import FastAPI, Request
 import uvicorn
 
@@ -123,24 +123,24 @@ async def is_subscribed(user_id: int) -> bool:
 # --- [ СИСТЕМА ЗАГРУЗКИ ] ---
 
 async def fetch_api_bypass(url: str, mode: str = "video") -> Tuple[Optional[str], Optional[str], Optional[str]]:
-    apis = ["https://api.cobalt.tools/api/json", "https://cobalt.instatus.com/api/json"]
+    apis = ["https://api.cobalt.tools/api/json"]
     headers = {"Accept": "application/json", "Content-Type": "application/json"}
-    payload = {"url": url, "vCodec": "h264", "isAudioOnly": mode == "audio", "isNoWatermark": True}
+    payload = {"url": url, "vCodec": "h264", "isAudioOnly": mode == "audio"}
     
-    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as session:
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
         for api in apis:
             try:
                 async with session.post(api, json=payload, headers=headers) as resp:
                     if resp.status == 200:
                         data = await resp.json()
-                        res_url = data.get("url") or (data.get("picker")[0].get("url") if data.get("picker") else None)
-                        if res_url: return res_url, data.get("author", "Media"), data.get("filename", "Media")
+                        res_url = data.get("url")
+                        return res_url, data.get("author"), data.get("filename")
             except: continue
     return None, None, None
 
 async def download_media(url: str, mode: str) -> Tuple[List[str], Dict[str, Any]]:
-    # Для соцсетей сначала пробуем API (быстрее)
-    if any(x in url.lower() for x in ["instagram.com", "instagr.am", "pin.it", "pinterest.com", "youtube.com", "youtu.be"]):
+    # Сначала пытаемся через API
+    if any(x in url.lower() for x in ["instagram.com", "instagr.am", "pin.it", "pinterest.com"]):
         link, author, title = await fetch_api_bypass(url, mode)
         if link: return [link], {"uploader": author, "title": title}
 
@@ -148,7 +148,7 @@ async def download_media(url: str, mode: str) -> Tuple[List[str], Dict[str, Any]
     if download_dir.exists(): shutil.rmtree(download_dir)
     download_dir.mkdir(exist_ok=True)
     
-    ydl_params = {
+    ydl_params: Dict[str, Any] = {
         'quiet': True, 'noplaylist': True,
         'outtmpl': str(download_dir / "%(id)s.%(ext)s"),
         'ffmpeg_location': FFMPEG_EXE,
@@ -158,17 +158,16 @@ async def download_media(url: str, mode: str) -> Tuple[List[str], Dict[str, Any]
         ydl_params['format'] = 'bestaudio/best'
         ydl_params['postprocessors'] = [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3','preferredquality': '192'}]
     else:
-        # Улучшенный выбор формата: ищем mp4, если нет - берем любое лучшее
-        ydl_params['format'] = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best/bestvideo+bestaudio"
+        ydl_params['format'] = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
     
     try:
         def _ex():
             with yt_dlp.YoutubeDL(ydl_params) as ydl: return ydl.extract_info(url, download=True)
         info = await asyncio.to_thread(_ex)
+        if not info: return [], {}
         files = [str(download_dir / f) for f in os.listdir(download_dir) if not f.endswith(".part")]
         return files, dict(info)
-    except Exception as e:
-        logger.warning(f"yt-dlp error: {e}")
+    except:
         link, author, title = await fetch_api_bypass(url, mode)
         if link: return [link], {"uploader": author, "title": title}
     return [], {}
@@ -179,7 +178,8 @@ async def download_media(url: str, mode: str) -> Tuple[List[str], Dict[str, Any]
 async def start_cmd(message: Message, command: CommandObject):
     if not message.from_user: return
     user_id = message.from_user.id
-    referrer = int(command.args) if command.args and command.args.isdigit() and int(command.args) != user_id else None
+    args = command.args
+    referrer = int(args) if args and args.isdigit() and int(args) != user_id else None
 
     with get_db() as conn:
         conn.execute("INSERT OR IGNORE INTO users (user_id, username, joined, referred_by) VALUES (?, ?, ?, ?)", 
@@ -194,6 +194,7 @@ async def start_cmd(message: Message, command: CommandObject):
 
 @dp.callback_query(F.data == "my_profile")
 async def profile_handler(callback: CallbackQuery):
+    if not callback.message: return
     user_id = callback.from_user.id
     with get_db() as conn:
         res = conn.execute("SELECT downloads_count FROM users WHERE user_id = ?", (user_id,)).fetchone()
@@ -216,7 +217,6 @@ async def handle_url(message: Message):
             return await message.answer("⚠️ <b>Лимит исчерпан!</b>\nПодпишись на канал:", 
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="💎 ПОДПИСАТЬСЯ", url=CHANNEL_URL)],
                                                                    [InlineKeyboardButton(text="🔄 ПРОВЕРИТЬ", callback_data="check_sub")]]))
-
         cached = conn.execute("SELECT file_id, mode FROM media_cache WHERE url_hash = ?", (url_hash,)).fetchone()
     
     if cached:
@@ -235,8 +235,12 @@ async def handle_url(message: Message):
 
 @dp.callback_query(F.data.startswith("dl_"))
 async def process_download(callback: CallbackQuery):
+    if not callback.message or not isinstance(callback.message, Message) or not callback.data: return
+    
     user_id = callback.from_user.id
-    _, mode_char, v_id = callback.data.split("_")
+    parts = callback.data.split("_")
+    if len(parts) < 3: return
+    _, mode_char, v_id = parts
     mode = "video" if mode_char == "v" else "audio"
 
     with get_db() as conn:
@@ -250,11 +254,14 @@ async def process_download(callback: CallbackQuery):
     try:
         async with ChatActionSender(bot=bot, chat_id=user_id, action="upload_video" if mode == "video" else "upload_voice"):
             paths, info = await download_media(url, mode)
-            if not paths: return await load_msg.edit_text("❌ Ошибка загрузки.")
+            if not paths:
+                if isinstance(load_msg, Message): await load_msg.edit_text("❌ Ошибка.")
+                return
 
             cap = f"<b>{info.get('title', 'Media')[:45]}</b>\n\n📥 @{BOT_USERNAME}"
             target = paths[0]
             
+            sent = None
             if target.startswith("http"):
                 sent = await (bot.send_video(user_id, video=target, caption=cap) if mode == "video" else bot.send_audio(user_id, audio=target, caption=cap))
             else:
@@ -262,23 +269,26 @@ async def process_download(callback: CallbackQuery):
                 if os.path.exists(target): os.remove(target)
 
             if sent:
-                f_id = sent.video.file_id if mode == "video" else sent.audio.file_id
-                with get_db() as conn:
-                    conn.execute("INSERT OR IGNORE INTO media_cache (url_hash, file_id, mode) VALUES (?, ?, ?)", (url_hash, f_id, mode))
-                    conn.execute("UPDATE users SET downloads_count = downloads_count + 1 WHERE user_id = ?", (user_id,))
-                    conn.commit()
+                f_id = None
+                if mode == "video" and sent.video: f_id = sent.video.file_id
+                elif mode == "audio" and sent.audio: f_id = sent.audio.file_id
+                
+                if f_id:
+                    with get_db() as conn:
+                        conn.execute("INSERT OR IGNORE INTO media_cache (url_hash, file_id, mode) VALUES (?, ?, ?)", (url_hash, f_id, mode))
+                        conn.execute("UPDATE users SET downloads_count = downloads_count + 1 WHERE user_id = ?", (user_id,))
+                        conn.commit()
 
-            await bot.send_sticker(user_id, sticker=SUCCESS_STICKER)
+            await bot.send_sticker(user_id, SUCCESS_STICKER)
             log_service_stat(url)
-            await load_msg.delete()
-    except Exception as e:
-        logger.error(e)
-        await load_msg.edit_text("❌ Ошибка при отправке.")
+            if isinstance(load_msg, Message): await load_msg.delete()
+    except Exception:
+        if isinstance(load_msg, Message): await load_msg.edit_text("❌ Ошибка отправки.")
 
 # --- [ АДМИНКА ] ---
 @dp.callback_query(F.data == "admin_main")
 async def admin_panel(callback: CallbackQuery):
-    if callback.from_user.id != ADMIN_ID: return
+    if callback.from_user.id != ADMIN_ID or not callback.message: return
     with get_db() as conn: u_count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
     text = f"🛠 <b>Админка</b>\nЮзеров: {u_count}\n\n{get_service_stats()}"
     kb = [[InlineKeyboardButton(text="📢 Рассылка", callback_data="admin_broadcast")], [InlineKeyboardButton(text="❌ Закрыть", callback_data="close_admin")]]
@@ -286,6 +296,7 @@ async def admin_panel(callback: CallbackQuery):
 
 @dp.callback_query(F.data == "admin_broadcast")
 async def broadcast_start(c: CallbackQuery, state: FSMContext):
+    if not c.message: return
     await state.set_state(AdminStates.waiting_for_broadcast_msg)
     await c.message.answer("Введите сообщение:")
 
@@ -299,22 +310,25 @@ async def broadcast_execute(m: Message, state: FSMContext):
 
 @dp.callback_query(F.data == "check_sub")
 async def ch_sb(c: CallbackQuery):
+    if not c.message: return
     if await is_subscribed(c.from_user.id):
         await c.message.answer("✅ Подписка подтверждена!"); await c.message.delete()
     else: await c.answer("❌ Вы не подписаны!", show_alert=True)
 
 @dp.callback_query(F.data == "back_start")
 async def back_st(c: CallbackQuery):
+    if not c.message: return
     await start_cmd(c.message, CommandObject(command="start", args=None))
     await c.message.delete()
 
 @dp.callback_query(F.data == "get_support")
 async def support_handler(callback: CallbackQuery):
+    if not callback.message: return
     await callback.message.answer(f"🛠 Поддержка: @{SUPPORT_USER}")
 
 @dp.callback_query(F.data == "close_admin")
 async def close_admin_handler(callback: CallbackQuery):
-    await callback.message.delete()
+    if callback.message: await callback.message.delete()
 
 # --- [ СЕРВЕР ] ---
 async def stay_awake():
@@ -337,7 +351,8 @@ app = FastAPI(lifespan=lifespan)
 
 @app.post(WEBHOOK_PATH)
 async def bot_webhook(request: Request):
-    update = Update.model_validate(await request.json(), context={"bot": bot})
+    data = await request.json()
+    update = Update.model_validate(data, context={"bot": bot})
     await dp.feed_update(bot, update)
     return {"ok": True}
 
