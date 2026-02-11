@@ -399,6 +399,20 @@ async def support_handler(callback: CallbackQuery):
 async def close_admin_handler(callback: CallbackQuery):
     if callback.message: await callback.message.delete()
 
+# --- [ АНТИ-СОН МЕХАНИЗМ ДЛЯ RENDER ] ---
+
+async def stay_awake():
+    """Фоновая задача, которая пингует сервер каждые 10 минут, чтобы он не засыпал."""
+    while True:
+        await asyncio.sleep(600)  # Ждем 10 минут
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(RENDER_URL) as resp:
+                    if resp.status == 200:
+                        logging.info("Self-ping successful: Bot is awake.")
+        except Exception as e:
+            logging.error(f"Self-ping failed: {e}")
+
 # --- [ WEBHOOK СЕРВЕР ] ---
 app = FastAPI()
 
@@ -406,6 +420,8 @@ app = FastAPI()
 async def on_startup():
     init_db()
     await bot.set_webhook(url=WEBHOOK_URL, drop_pending_updates=True)
+    # Запускаем анти-сон при старте приложения
+    asyncio.create_task(stay_awake())
 
 @app.post(WEBHOOK_PATH)
 async def bot_webhook(request: Request):
