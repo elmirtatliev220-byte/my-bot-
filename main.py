@@ -80,16 +80,32 @@ BOT_USERNAME: str = "Limiktikbot"
 # --- [ БАЗА ДАННЫХ ] ---
 
 def get_db():
+    # Используем один файл database.db для всех данных
     return sqlite3.connect(str(BASE_DIR / "database.db"), check_same_thread=False)
 
 def init_db():
     with get_db() as conn:
-        conn.execute("CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, username TEXT, joined TEXT, downloads_count INTEGER DEFAULT 0)")
+        # Создаем таблицу пользователей, если её нет
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                user_id INTEGER PRIMARY KEY, 
+                username TEXT, 
+                joined TEXT, 
+                downloads_count INTEGER DEFAULT 0
+            )
+        """)
         conn.execute("CREATE TABLE IF NOT EXISTS url_shorter (id TEXT PRIMARY KEY, url TEXT)")
         conn.execute("CREATE TABLE IF NOT EXISTS media_cache (url_hash TEXT PRIMARY KEY, file_id TEXT, mode TEXT, service TEXT)")
         conn.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)")
+        
+        # Инициализация настроек рекламы
         conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('ad_text', '💎 Заработать тут')")
         conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('ad_url', 'https://t.me/Bns_888')")
+        
+        # Инициализация счетчиков статистики, чтобы они не были пустыми
+        for s in ['tiktok', 'instagram', 'youtube', 'vk', 'pinterest', 'other']:
+            conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, '0')", (f"stat_{s}",))
+            
         conn.commit()
 
 def log_service_stat(url: str):
@@ -102,8 +118,8 @@ def log_service_stat(url: str):
     elif "pinterest.com" in low_url or "pin.it" in low_url: service = "pinterest"
     
     with get_db() as conn:
-        conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, '0')", (f"stat_{service}",))
         conn.execute("UPDATE settings SET value = CAST(value AS INTEGER) + 1 WHERE key = ?", (f"stat_{service}",))
+        conn.commit()
 
 def get_service_stats() -> str:
     services = ['tiktok', 'instagram', 'youtube', 'vk', 'pinterest', 'other']
@@ -128,6 +144,7 @@ def save_to_cache(url: str, file_id: str, mode: str):
 def increment_downloads(user_id: int):
     with get_db() as conn:
         conn.execute("UPDATE users SET downloads_count = downloads_count + 1 WHERE user_id = ?", (user_id,))
+        conn.commit()
 
 async def is_subscribed(user_id: int) -> bool:
     if user_id == ADMIN_ID: return True
@@ -215,6 +232,7 @@ async def start_cmd(message: Message):
     with get_db() as conn:
         conn.execute("INSERT OR IGNORE INTO users (user_id, username, joined) VALUES (?, ?, ?)", 
                     (message.from_user.id, message.from_user.username or f"id_{message.from_user.id}", datetime.now().isoformat()))
+        conn.commit()
     
     text = (
         f"👋 <b>Привет, {message.from_user.first_name}!</b>\n\n"
@@ -255,6 +273,7 @@ async def handle_url(message: Message):
     v_id = hashlib.md5(message.text.encode()).hexdigest()[:10]
     with get_db() as conn:
         conn.execute("INSERT OR REPLACE INTO url_shorter VALUES (?, ?)", (v_id, message.text))
+        conn.commit()
     
     kb = [[InlineKeyboardButton(text="🎬 Видео", callback_data=f"v_{v_id}"),
             InlineKeyboardButton(text="🎵 Аудио", callback_data=f"a_{v_id}")]]
@@ -265,7 +284,6 @@ async def process_download(callback: CallbackQuery):
     if not callback.from_user or not callback.message or not callback.data: return
     user_id = callback.from_user.id
     
-    # Дополнительная проверка перед скачиванием
     with get_db() as conn:
         res = conn.execute("SELECT downloads_count FROM users WHERE user_id = ?", (user_id,)).fetchone()
         count = res[0] if res else 0
@@ -381,6 +399,7 @@ async def ad_save(m: Message, state: FSMContext):
         with get_db() as conn:
             conn.execute("UPDATE settings SET value = ? WHERE key = 'ad_text'", (txt,))
             conn.execute("UPDATE settings SET value = ? WHERE key = 'ad_url'", (link,))
+            conn.commit()
         await m.answer("✅ Готово!"); await state.clear()
     except: await m.answer("❌ Формат: Текст Ссылка")
 
