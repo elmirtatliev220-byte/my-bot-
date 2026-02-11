@@ -69,7 +69,14 @@ def get_db():
 
 def init_db():
     with get_db() as conn:
-        conn.execute("CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, username TEXT, joined TEXT, downloads_count INTEGER DEFAULT 0)")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                user_id INTEGER PRIMARY KEY, 
+                username TEXT, 
+                joined TEXT, 
+                downloads_count INTEGER DEFAULT 0
+            )
+        """)
         conn.execute("CREATE TABLE IF NOT EXISTS url_shorter (id TEXT PRIMARY KEY, url TEXT)")
         conn.execute("CREATE TABLE IF NOT EXISTS media_cache (url_hash TEXT PRIMARY KEY, file_id TEXT, mode TEXT, service TEXT)")
         conn.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)")
@@ -85,6 +92,7 @@ def log_service_stat(url: str):
     elif any(x in low_url for x in ["youtube.com", "youtu.be", "/shorts/"]): service = "youtube"
     elif any(x in low_url for x in ["vk.com", "vkvideo.ru", "vk.ru"]): service = "vk"
     elif "pinterest.com" in low_url or "pin.it" in low_url: service = "pinterest"
+    
     with get_db() as conn:
         conn.execute("UPDATE settings SET value = CAST(value AS INTEGER) + 1 WHERE key = ?", (f"stat_{service}",))
         conn.commit()
@@ -112,6 +120,7 @@ async def fetch_api_bypass(url: str, mode: str = "video") -> Tuple[Optional[str]
     api_url = "https://api.cobalt.tools/api/json"
     headers = {"Accept": "application/json", "Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
     payload = {"url": url, "vCodec": "h264", "isAudioOnly": mode == "audio", "isNoWatermark": True}
+    
     timeout = aiohttp.ClientTimeout(total=15)
     async with aiohttp.ClientSession(timeout=timeout) as session:
         try:
@@ -124,8 +133,8 @@ async def fetch_api_bypass(url: str, mode: str = "video") -> Tuple[Optional[str]
     return None, None, None
 
 async def download_media(url: str, mode: str) -> Tuple[List[str], Dict[str, Any]]:
-    # Instagram, Stories и Shorts — приоритет через API (быстрее и обходит 403)
-    if any(x in url.lower() for x in ["instagram.com", "instagr.am", "/shorts/", "/reel/"]):
+    # Для Pinterest, Insta и Shorts приоритет через Cobalt (обход m3u8 и 403)
+    if any(x in url.lower() for x in ["instagram.com", "instagr.am", "pinterest.com", "pin.it", "/shorts/", "/reel/"]):
         link, author, title = await fetch_api_bypass(url, mode)
         if link: return [link], {"uploader": author, "title": title}
 
@@ -133,7 +142,6 @@ async def download_media(url: str, mode: str) -> Tuple[List[str], Dict[str, Any]
     if download_dir.exists(): shutil.rmtree(download_dir)
     download_dir.mkdir(exist_ok=True)
     
-    # YouTube всегда в mp4
     ydl_params: Dict[str, Any] = {
         'quiet': True, 'noplaylist': True,
         'outtmpl': str(download_dir / "%(id)s.%(ext)s"),
@@ -141,6 +149,14 @@ async def download_media(url: str, mode: str) -> Tuple[List[str], Dict[str, Any]
         'format': "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
     }
     
+    if mode == "audio":
+        ydl_params['format'] = 'bestaudio/best'
+        ydl_params['postprocessors'] = [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'mp3',
+            'preferredquality': '192',
+        }]
+
     try:
         def _ex():
             with yt_dlp.YoutubeDL(ydl_params) as ydl: return ydl.extract_info(url, download=True)
@@ -149,7 +165,6 @@ async def download_media(url: str, mode: str) -> Tuple[List[str], Dict[str, Any]
         files = [str(download_dir / f) for f in os.listdir(download_dir) if not f.endswith(".part")]
         return files, dict(info)
     except:
-        # Fallback на API если yt-dlp не справился
         link, author, title = await fetch_api_bypass(url, mode)
         if link: return [link], {"uploader": author, "title": title}
     return [], {}
@@ -163,6 +178,7 @@ async def start_cmd(message: Message):
         conn.execute("INSERT OR IGNORE INTO users (user_id, username, joined) VALUES (?, ?, ?)", 
                     (message.from_user.id, message.from_user.username or f"id_{message.from_user.id}", datetime.now().isoformat()))
         conn.commit()
+    
     text = f"👋 Привет! Я качаю видео из TikTok, VK, Insta, YouTube и Pinterest.\nПросто кидай ссылку!"
     kb = [[InlineKeyboardButton(text="🆘 Поддержка", callback_data="get_support")]]
     if message.from_user.id == ADMIN_ID:
@@ -176,7 +192,6 @@ async def handle_url(message: Message):
     url = message.text.strip()
     url_hash = hashlib.md5(url.encode()).hexdigest()
 
-    # --- МГНОВЕННЫЙ КЭШ ---
     with get_db() as conn:
         cached = conn.execute("SELECT file_id, mode FROM media_cache WHERE url_hash = ?", (url_hash,)).fetchone()
         if cached:
@@ -185,7 +200,6 @@ async def handle_url(message: Message):
             else: await message.answer_audio(file_id, caption=f"📥 @{BOT_USERNAME}")
             return
 
-        # ЛИМИТЫ (Реклама только тут)
         res = conn.execute("SELECT downloads_count FROM users WHERE user_id = ?", (user_id,)).fetchone()
         count = res[0] if res else 0
         if count >= FREE_LIMIT and not await is_subscribed(user_id):
@@ -198,9 +212,10 @@ async def handle_url(message: Message):
     with get_db() as conn:
         conn.execute("INSERT OR REPLACE INTO url_shorter VALUES (?, ?)", (v_id, url))
         conn.commit()
-    kb = [[InlineKeyboardButton(text="🎬 Видео", callback_data=f"v_{v_id}"),
-            InlineKeyboardButton(text="🎵 Аудио", callback_data=f"a_{v_id}")]]
-    await message.answer("🎥 Куда загружаем?", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
+    
+    kb = [[InlineKeyboardButton(text="🎬 Видео / Фото", callback_data=f"v_{v_id}"),
+            InlineKeyboardButton(text="🎵 MP3 Аудио", callback_data=f"a_{v_id}")]]
+    await message.answer("🎥 Что скачиваем?", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
 
 @dp.callback_query(F.data.regexp(r"^[va]_"))
 async def process_download(callback: CallbackQuery):
@@ -238,16 +253,22 @@ async def process_download(callback: CallbackQuery):
                 if os.path.exists(target): os.remove(target)
 
             if sent_msg:
-                f_id = sent_msg.video.file_id if mode=="video" and sent_msg.video else (sent_msg.audio.file_id if mode=="audio" and sent_msg.audio else None)
+                f_id = None
+                if mode == "video" and sent_msg.video: f_id = sent_msg.video.file_id
+                elif mode == "audio" and sent_msg.audio: f_id = sent_msg.audio.file_id
+                
                 if f_id:
                     with get_db() as conn:
                         conn.execute("INSERT OR IGNORE INTO media_cache VALUES (?, ?, ?, ?)", (url_hash, f_id, mode, "service"))
                         conn.execute("UPDATE users SET downloads_count = downloads_count + 1 WHERE user_id = ?", (user_id,))
                         conn.commit()
+
             log_service_stat(url)
             await load_msg.delete()
     except Exception:
         await load_msg.edit_text("❌ Ошибка при отправке.")
+
+# --- [ АДМИНКА ] ---
 
 @dp.callback_query(F.data == "admin_main")
 async def admin_panel(callback: CallbackQuery):
@@ -288,6 +309,8 @@ async def support_handler(callback: CallbackQuery):
 async def close_admin_handler(callback: CallbackQuery):
     if callback.message: await callback.message.delete()
 
+# --- [ АНТИ-СОН И ЗАПУСК ] ---
+
 async def stay_awake():
     while True:
         await asyncio.sleep(600)
@@ -297,6 +320,7 @@ async def stay_awake():
         except: pass
 
 app = FastAPI()
+
 @app.on_event("startup")
 async def on_startup():
     init_db()
