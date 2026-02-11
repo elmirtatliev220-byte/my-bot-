@@ -19,7 +19,11 @@ import uvicorn
 import static_ffmpeg
 from dotenv import load_dotenv
 
-# Настройка FFmpeg (нужен для Pinterest m3u8 и MP3)
+# Настройка логирования для Render
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Настройка FFmpeg
 try:
     static_ffmpeg.add_paths()
 except Exception:
@@ -48,7 +52,7 @@ CHANNEL_ID = "@Bns_888"
 CHANNEL_URL = "https://t.me/Bns_888" 
 FREE_LIMIT = 3 
 
-# ID анимированного стикера успеха (можно заменить на свой)
+# ID анимированного стикера успеха (Проверенный стандартный)
 SUCCESS_STICKER = "CAACAgIAAxkBAAEL6_Zl9_2_S9_S9_S9_S9_S9_S9_S9"
 
 BASE_DIR = Path(__file__).parent
@@ -135,7 +139,6 @@ async def fetch_api_bypass(url: str, mode: str = "video") -> Tuple[Optional[str]
     return None, None, None
 
 async def download_media(url: str, mode: str) -> Tuple[List[str], Dict[str, Any]]:
-    # Для Pinterest и Instagram используем усиленный Bypass (Cobalt)
     if any(x in url.lower() for x in ["pinterest.com", "pin.it", "instagram.com", "instagr.am"]):
         link, author, title = await fetch_api_bypass(url, mode)
         if link: return [link], {"uploader": author, "title": title}
@@ -181,11 +184,10 @@ async def start_cmd(message: Message):
                     (message.from_user.id, message.from_user.username or f"id_{message.from_user.id}", datetime.now().isoformat()))
         conn.commit()
     
-    # Описание БЕЗ YouTube
     text = (
         f"👋 Привет! Я качаю видео и фото из:\n"
-        f"🔹 <b>TikTok</b>\n🔹 <b>Instagram</b> (Reels, Stories)\n"
-        f"🔹 <b>Pinterest</b> (Video, Image, Audio)\n🔹 <b>VK Video</b>\n\n"
+        f"🔹 <b>TikTok</b>\n🔹 <b>Instagram</b>\n"
+        f"🔹 <b>Pinterest</b> (Видео, Фото, MP3)\n🔹 <b>VK Video</b>\n\n"
         f"Просто пришли мне ссылку!"
     )
     kb = [[InlineKeyboardButton(text="🆘 Поддержка", callback_data="get_support")]]
@@ -211,7 +213,7 @@ async def handle_url(message: Message):
         res = conn.execute("SELECT downloads_count FROM users WHERE user_id = ?", (user_id,)).fetchone()
         count = res[0] if res else 0
         if count >= FREE_LIMIT and not await is_subscribed(user_id):
-            text = "⚠️ <b>Лимит загрузок исчерпан!</b>\n\nПодпишись на канал, чтобы продолжить."
+            text = "⚠️ <b>Лимит загрузок!</b>\n\nПодпишись на канал, чтобы качать без ограничений."
             kb = [[InlineKeyboardButton(text="💎 ПОДПИСАТЬСЯ", url=CHANNEL_URL)],
                   [InlineKeyboardButton(text="🔄 ПРОВЕРИТЬ", callback_data="check_sub")]]
             return await message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
@@ -223,7 +225,7 @@ async def handle_url(message: Message):
     
     kb = [[InlineKeyboardButton(text="🎬 Видео / Фото", callback_data=f"v_{v_id}"),
             InlineKeyboardButton(text="🎵 MP3 Аудио", callback_data=f"a_{v_id}")]]
-    await message.answer("🎥 Что извлечь из ссылки?", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
+    await message.answer("🎥 Что скачиваем?", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
 
 @dp.callback_query(F.data.regexp(r"^[va]_"))
 async def process_download(callback: CallbackQuery):
@@ -252,7 +254,6 @@ async def process_download(callback: CallbackQuery):
             target = paths[0]
             sent_msg = None
 
-            # Проверка типа (Pinterest может дать фото)
             is_image = any(target.lower().endswith(x) for x in ['.jpg', '.jpeg', '.png', '.webp'])
 
             if target.startswith("http"):
@@ -277,7 +278,7 @@ async def process_download(callback: CallbackQuery):
                         conn.execute("UPDATE users SET downloads_count = downloads_count + 1 WHERE user_id = ?", (user_id,))
                         conn.commit()
                 
-                # ОТПРАВКА СТИКЕРА УСПЕХА
+                # Стикер успеха
                 try: await bot.send_sticker(user_id, sticker="CAACAgIAAxkBAAEL6_Zl9_2_")
                 except: pass
 
@@ -301,7 +302,7 @@ async def admin_panel(callback: CallbackQuery):
 @dp.callback_query(F.data == "admin_broadcast")
 async def broadcast_start(c: CallbackQuery, state: FSMContext):
     await state.set_state(AdminStates.waiting_for_broadcast_msg)
-    await c.message.answer("Введите сообщение для рассылки (текст, фото или видео):")
+    await c.message.answer("Введите сообщение для рассылки:")
 
 @dp.message(AdminStates.waiting_for_broadcast_msg)
 async def broadcast_execute(m: Message, state: FSMContext):
@@ -310,22 +311,14 @@ async def broadcast_execute(m: Message, state: FSMContext):
     for u in users:
         try: await m.copy_to(u[0]); count += 1
         except: continue
-    await m.answer(f"✅ Рассылка завершена. Получили: {count} чел."); await state.clear()
+    await m.answer(f"✅ Готово! Получили: {count} чел."); await state.clear()
 
 @dp.callback_query(F.data == "check_sub")
 async def ch_sb(c: CallbackQuery):
     if not c.message: return
     if await is_subscribed(c.from_user.id):
-        await c.message.answer("✅ Подписка подтверждена! Можешь качать.")
-    else: await c.answer("❌ Ты всё еще не подписан на канал!", show_alert=True)
-
-@dp.callback_query(F.data == "get_support")
-async def support_handler(callback: CallbackQuery):
-    await callback.message.answer(f"🛠 По всем вопросам: @{SUPPORT_USER}")
-
-@dp.callback_query(F.data == "close_admin")
-async def close_admin_handler(callback: CallbackQuery):
-    if callback.message: await callback.message.delete()
+        await c.message.answer("✅ Подписка подтверждена!")
+    else: await c.answer("❌ Ты еще не подписан!", show_alert=True)
 
 # --- [ LIFESPAN & FASTAPI ] ---
 
@@ -340,6 +333,8 @@ async def stay_awake():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    # Логируем установку вебхука для отладки на Render
+    print(f"--- SETTING WEBHOOK TO: {WEBHOOK_URL} ---")
     await bot.set_webhook(url=WEBHOOK_URL, drop_pending_updates=True)
     asyncio.create_task(stay_awake())
     yield
